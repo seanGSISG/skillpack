@@ -60,8 +60,12 @@ A pack is a Claude Code plugin directory with a `skillpack.json` beside `.claude
 bun install
 bun test            # planner tests
 bun run typecheck
-bun run build       # writes dist/cli.mjs; commit it, since npx github: runs dist directly
+bun run bundle      # writes dist/cli.mjs; commit it, since npx github: runs dist directly
 node dist/cli.mjs add web-tool-routing --dry-run
 ```
 
 `src/plan.ts` is the core: choices + manifest + machine state → ordered steps. `src/run.ts` executes them.
+
+Keep `build`, `prepare`, `prepack`, and install hooks out of `package.json` scripts: any of them makes npm run
+"git dep preparation" (an inner `npm install`) for `npx github:`, which fails silently on npm ≥ 11.17 when
+`allow-scripts` is set in a user `.npmrc` ([npm/cli#9783](https://github.com/npm/cli/issues/9783)).

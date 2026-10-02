@@ -12,7 +12,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "bun build src/cli.ts --target=node --packages=external --outfile=dist/cli.mjs",
+    "bundle": "bun build src/cli.ts --target=node --packages=external --outfile=dist/cli.mjs",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
