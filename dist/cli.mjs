@@ -135,7 +135,10 @@ function planSteps({ packs, agents, copy }, machine) {
     for (const id of others) {
       const agent = AGENTS[id].mcp;
       for (const [name, url] of servers) {
-        steps.push(agent ? { kind: "mcp", agent, name, url } : { kind: "mcp-manual", agent: id, name, url });
+        if (!agent)
+          steps.push({ kind: "mcp-manual", agent: id, name, url });
+        else if (!machine.mcpServers.get(agent)?.has(name))
+          steps.push({ kind: "mcp", agent, name, url });
       }
     }
   }
@@ -171,11 +174,12 @@ function describe(step) {
 
 // src/run.ts
 import * as p from "@clack/prompts";
-import { upsertServer } from "add-mcp";
+import { agents as mcpAgents2, listInstalledServers, upsertServer } from "add-mcp";
+import { copyFileSync, existsSync } from "node:fs";
 var SKILLS_CLI = "skills@1";
 var lastLine = (text) => text.trim().split(`
 `).at(-1) ?? "";
-async function probeMachine() {
+async function probeMachine(agents) {
   const hasClaude = which("claude") !== undefined;
   const names = async (argv, key) => {
     const rows = hasClaude ? await runJson(argv) : undefined;
@@ -183,11 +187,14 @@ async function probeMachine() {
       return new Set;
     return new Set(rows.flatMap((row) => typeof row[key] === "string" && row.enabled !== false ? [row[key]] : []));
   };
-  const [claudeMarketplaces, claudePlugins] = await Promise.all([
+  const mcpAgentIds = agents.flatMap((id) => AGENTS[id].mcp ?? []).filter((id) => id !== "claude-code");
+  const [claudeMarketplaces, claudePlugins, installed] = await Promise.all([
     names(["claude", "plugin", "marketplace", "list", "--json"], "name"),
-    names(["claude", "plugin", "list", "--json"], "id")
+    names(["claude", "plugin", "list", "--json"], "id"),
+    mcpAgentIds.length ? listInstalledServers({ global: true, agents: mcpAgentIds }) : []
   ]);
-  return { has: (command) => which(command) !== undefined, claudeMarketplaces, claudePlugins };
+  const mcpServers = new Map(installed.map((agent) => [agent.agentType, new Set(agent.servers.map((server) => server.serverName))]));
+  return { has: (command) => which(command) !== undefined, claudeMarketplaces, claudePlugins, mcpServers };
 }
 async function isSignedIn(auth) {
   const status = await runJson(auth);
@@ -231,8 +238,14 @@ async function runStep(step, interactive) {
       return result.ok ? { status: "done" } : { status: "failed", detail: lastLine(result.stderr || result.stdout) };
     }
     case "mcp": {
+      const configPath = mcpAgents2[step.agent].configPath;
+      const backup = `${configPath}.skillpack-backup`;
+      if (existsSync(configPath) && !existsSync(backup))
+        copyFileSync(configPath, backup);
       const result = upsertServer(step.agent, step.name, { type: "http", url: step.url });
-      return result.success ? { status: "done", detail: result.path } : { status: "failed", detail: result.error ?? result.path };
+      if (!result.success)
+        return { status: "failed", detail: result.error ?? result.path };
+      return { status: "done", detail: existsSync(backup) ? `${result.path} (original: ${backup})` : result.path };
     }
     case "mcp-manual":
       return { status: "manual", detail: `add ${step.url} as "${step.name}"` };
@@ -275,7 +288,7 @@ async function execute(steps, { interactive }) {
 
 // src/source.ts
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync as existsSync2, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as join2 } from "node:path";
 import { z } from "zod";
@@ -331,11 +344,11 @@ function loadPacks(dir, repo, ref) {
       return [];
     const path = entry.source.replace(/^\.\//, "");
     const root = join2(dir, path);
-    if (!existsSync(join2(root, "skillpack.json")))
+    if (!existsSync2(join2(root, "skillpack.json")))
       return [];
     const plugin = PluginJson.parse(readJson(join2(root, ".claude-plugin/plugin.json")));
     const skillsDir = join2(root, "skills");
-    const skills = existsSync(skillsDir) ? readdirSync(skillsDir).filter((name) => existsSync(join2(skillsDir, name, "SKILL.md"))) : [];
+    const skills = existsSync2(skillsDir) ? readdirSync(skillsDir).filter((name) => existsSync2(join2(skillsDir, name, "SKILL.md"))) : [];
     const dependencyMarketplaces = plugin.dependencies.flatMap((dep) => {
       const market = typeof dep === "string" ? dep.split("@")[1] : dep.marketplace;
       return market ? [market] : [];
@@ -473,7 +486,7 @@ async function main() {
   const chosen = await choosePacks(packs, spec.pack, yes);
   const agents = await chooseAgents(values.agent, yes);
   const copy = await chooseCopy(agents, values.copy, yes);
-  const steps = planSteps({ packs: chosen, agents, copy }, await probeMachine());
+  const steps = planSteps({ packs: chosen, agents, copy }, await probeMachine(agents));
   if (steps.length === 0) {
     p2.outro("Everything is already installed.");
     return 0;

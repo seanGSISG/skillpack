@@ -27,7 +27,9 @@ Options: `--agent <id>` (repeatable), `--yes` (detected agents, symlinks, no pro
 `--dry-run`. Agents: `claude-code`, `codex`, `pi`, `cursor`, `opencode`, `gemini-cli`, `github-copilot`, `windsurf`,
 `goose`, `amp` (Amp gets skills only; its MCP servers are listed for you to add).
 
-Re-running is safe: steps already satisfied are skipped. An already-installed Claude plugin is not upgraded; use
+Re-running is safe: steps already satisfied are skipped, including MCP servers an agent already has, so existing
+config files are not rewritten. The first MCP write to a file goes through add-mcp, which re-serializes it and drops
+comments in TOML/YAML configs (Codex, Goose); the original is kept once as `<config>.skillpack-backup`. An already-installed Claude plugin is not upgraded; use
 `claude plugin update <pack>@<marketplace>`. Skills update with `npx skills update -g`.
 
 ## Pack manifest

@@ -17,6 +17,8 @@ export interface Machine {
   has: (command: string) => boolean;
   claudeMarketplaces: ReadonlySet<string>;
   claudePlugins: ReadonlySet<string>;
+  // MCP server names already in each add-mcp agent's global config; those are never rewritten.
+  mcpServers: ReadonlyMap<AgentType, ReadonlySet<string>>;
 }
 
 export interface Choices {
@@ -91,7 +93,8 @@ export function planSteps({ packs, agents, copy }: Choices, machine: Machine): S
     for (const id of others) {
       const agent = AGENTS[id].mcp;
       for (const [name, url] of servers) {
-        steps.push(agent ? { kind: "mcp", agent, name, url } : { kind: "mcp-manual", agent: id, name, url });
+        if (!agent) steps.push({ kind: "mcp-manual", agent: id, name, url });
+        else if (!machine.mcpServers.get(agent)?.has(name)) steps.push({ kind: "mcp", agent, name, url });
       }
     }
   }

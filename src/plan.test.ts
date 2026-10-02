@@ -25,6 +25,7 @@ const machine = (has: string[], overrides: Partial<Machine> = {}): Machine => ({
   has: (command) => has.includes(command),
   claudeMarketplaces: new Set(["claude-plugins-official"]),
   claudePlugins: new Set(),
+  mcpServers: new Map(),
   ...overrides,
 });
 
@@ -68,6 +69,14 @@ group("planSteps", () => {
   test("--copy reaches every skills step", () => {
     const steps = planSteps({ packs: [pack], agents: ["codex"], copy: true }, machine(["uv", "tvly"]));
     expect(steps.filter((step) => step.kind === "skills").every((step) => step.copy)).toBe(true);
+  });
+
+  test("MCP servers already configured are not rewritten", () => {
+    const steps = planSteps(
+      { packs: [pack], agents: ["codex"], copy: false },
+      machine(["uv", "tvly"], { mcpServers: new Map([["codex", new Set(["parallel-search"])]]) }),
+    );
+    expect(steps.some((step) => step.kind === "mcp")).toBe(false);
   });
 
   test("agent without an add-mcp id gets a manual MCP step", () => {

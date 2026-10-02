@@ -130,7 +130,7 @@ async function main(): Promise<number> {
   const agents = await chooseAgents(values.agent, yes);
   const copy = await chooseCopy(agents, values.copy, yes);
 
-  const steps = planSteps({ packs: chosen, agents, copy }, await probeMachine());
+  const steps = planSteps({ packs: chosen, agents, copy }, await probeMachine(agents));
   if (steps.length === 0) {
     p.outro("Everything is already installed.");
     return 0;

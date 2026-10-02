@@ -1,5 +1,7 @@
 import * as p from "@clack/prompts";
-import { upsertServer } from "add-mcp";
+import { agents as mcpAgents, type AgentType, listInstalledServers, upsertServer } from "add-mcp";
+import { copyFileSync, existsSync } from "node:fs";
+import { AGENTS, type AgentId } from "./agents.ts";
 import { describe, type Machine, type Step } from "./plan.ts";
 import { prependPath, run, runJson, UV_DEFAULT_BIN, UV_INSTALL, which } from "./system.ts";
 
@@ -16,8 +18,8 @@ const SKILLS_CLI = "skills@1";
 
 const lastLine = (text: string): string => text.trim().split("\n").at(-1) ?? "";
 
-// Reads the machine state planSteps() needs.
-export async function probeMachine(): Promise<Machine> {
+// Reads the machine state planSteps() needs for these agents.
+export async function probeMachine(agents: AgentId[]): Promise<Machine> {
   const hasClaude = which("claude") !== undefined;
   const names = async (argv: string[], key: "name" | "id"): Promise<Set<string>> => {
     const rows = hasClaude ? await runJson(argv) : undefined;
@@ -28,11 +30,16 @@ export async function probeMachine(): Promise<Machine> {
       ),
     );
   };
-  const [claudeMarketplaces, claudePlugins] = await Promise.all([
+  const mcpAgentIds = agents.flatMap((id) => AGENTS[id].mcp ?? []).filter((id) => id !== "claude-code");
+  const [claudeMarketplaces, claudePlugins, installed] = await Promise.all([
     names(["claude", "plugin", "marketplace", "list", "--json"], "name"),
     names(["claude", "plugin", "list", "--json"], "id"),
+    mcpAgentIds.length ? listInstalledServers({ global: true, agents: mcpAgentIds }) : [],
   ]);
-  return { has: (command) => which(command) !== undefined, claudeMarketplaces, claudePlugins };
+  const mcpServers = new Map<AgentType, Set<string>>(
+    installed.map((agent) => [agent.agentType, new Set(agent.servers.map((server) => server.serverName))]),
+  );
+  return { has: (command) => which(command) !== undefined, claudeMarketplaces, claudePlugins, mcpServers };
 }
 
 async function isSignedIn(auth: string[]): Promise<boolean> {
@@ -79,10 +86,13 @@ async function runStep(step: Step, interactive: boolean): Promise<Omit<Outcome, 
       return result.ok ? { status: "done" } : { status: "failed", detail: lastLine(result.stderr || result.stdout) };
     }
     case "mcp": {
+      // add-mcp re-serializes the whole file, which drops comments (TOML/YAML); keep the original once.
+      const configPath = mcpAgents[step.agent].configPath;
+      const backup = `${configPath}.skillpack-backup`;
+      if (existsSync(configPath) && !existsSync(backup)) copyFileSync(configPath, backup);
       const result = upsertServer(step.agent, step.name, { type: "http", url: step.url });
-      return result.success
-        ? { status: "done", detail: result.path }
-        : { status: "failed", detail: result.error ?? result.path };
+      if (!result.success) return { status: "failed", detail: result.error ?? result.path };
+      return { status: "done", detail: existsSync(backup) ? `${result.path} (original: ${backup})` : result.path };
     }
     case "mcp-manual":
       return { status: "manual", detail: `add ${step.url} as "${step.name}"` };
