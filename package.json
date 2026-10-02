@@ -1,0 +1,29 @@
+{
+  "name": "skillpack",
+  "version": "0.1.0",
+  "description": "Install skill packs (skills + CLIs + MCP servers + Claude plugin) into any coding agent.",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "skillpack": "dist/cli.mjs"
+  },
+  "files": ["dist"],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "bun build src/cli.ts --target=node --packages=external --outfile=dist/cli.mjs",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.8.1",
+    "add-mcp": "^2.4.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "@types/node": "^26.6.4",
+    "typescript": "^7.0.2"
+  }
+}
