@@ -31,6 +31,13 @@ Take a PR from opened to merged: one Copilot review, up to two Argus (PR-Agent) 
 |---|---|
 | `babysit` | Request and watch PR reviews, fix the real findings, and merge |
 
+### pack-author
+Author and ship skills and plugins for skillpack and cc-plugins.
+
+| Skill | Use it to |
+|---|---|
+| `pack-author` | Scaffold a pack, write its manifests, register it, verify the install, and release updates |
+
 ### web-tool-routing
 Route web work across Parallel, Exa and Tavily. Installs `uv`, the `tvly` and `parallel-cli` CLIs, and the Exa and
 Parallel Search MCP servers.
