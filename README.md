@@ -12,6 +12,45 @@ npx github:seanGSISG/skillpack add owner/repo/pack  # any Claude marketplace rep
 
 Private repo: the machine's `git` (or `gh`) must be signed in to GitHub.
 
+## Available packs
+
+Packs from the default marketplace, [seanGSISG/cc-plugins](https://github.com/seanGSISG/cc-plugins). Install one with
+`npx github:seanGSISG/skillpack add <pack>`.
+
+### stash
+Move files between machines through a private Cloudflare R2 bucket over plain HTTPS. Installs `uv`.
+
+| Skill | Use it to |
+|---|---|
+| `stash` | Upload, download, list and delete files, and make presigned share links |
+
+### babysit
+Take a PR from opened to merged: one Copilot review, up to two Argus (PR-Agent) rounds, then a scripted merge gate.
+
+| Skill | Use it to |
+|---|---|
+| `babysit` | Request and watch PR reviews, fix the real findings, and merge |
+
+### web-tool-routing
+Route web work across Parallel, Exa and Tavily. Installs `uv`, the `tvly` and `parallel-cli` CLIs, and the Exa and
+Parallel Search MCP servers.
+
+| Skill | Use it to |
+|---|---|
+| `web-tool-routing` | Pick between Parallel, Exa and Tavily for search, reading, crawling and research |
+| `web-tool-setup` | Check and install the CLIs and plugins the pack needs |
+| `tavily-cli` | Install and sign in to the Tavily CLI |
+| `tavily-search` | Web search through Tavily (fallback) |
+| `tavily-extract` | Extract page content from URLs |
+| `tavily-map` | List the URLs on a site |
+| `tavily-crawl` | Crawl a site and save pages as markdown |
+| `tavily-research` | Tavily research reports with citations |
+| `tavily-dynamic-search` | Tavily search with output filtered out of context |
+| `tavily-best-practices` | Reference for building Tavily integrations |
+
+For non-Claude agents the pack also installs these skills from `parallel-web/parallel-agent-skills`:
+`parallel-deep-research`, `parallel-findall`, `parallel-data-enrichment`, `parallel-monitor` and `parallel-cli-setup`.
+
 ## What the wizard does
 
 1. Clones the marketplace repo and finds plugins that ship a `skillpack.json`.
