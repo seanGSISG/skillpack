@@ -31,6 +31,13 @@ Take a PR from opened to merged: one Copilot review, up to two Argus (PR-Agent) 
 |---|---|
 | `babysit` | Request and watch PR reviews, fix the real findings, and merge |
 
+### go-best-practices
+Production Go patterns for writing, reviewing, and refactoring Go code.
+
+| Skill | Use it to |
+|---|---|
+| `go-best-practices` | Apply lifecycle, concurrency, config, testing, and CI patterns to Go code |
+
 ### pack-author
 Author and ship skills and plugins for skillpack and cc-plugins.
 
