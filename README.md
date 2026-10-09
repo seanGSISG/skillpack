@@ -31,6 +31,15 @@ Take a PR from opened to merged: one Copilot review, up to two Argus (PR-Agent) 
 |---|---|
 | `babysit` | Request and watch PR reviews, fix the real findings, and merge |
 
+### fastapi-best-practices
+Current FastAPI patterns for writing and reviewing FastAPI apps: the official FastAPI skill, vendored unmodified, plus a
+companion for the app plumbing it leaves out.
+
+| Skill | Use it to |
+|---|---|
+| `fastapi` | Follow the FastAPI team's conventions: `Annotated` dependencies, return types, routers, streaming, frontends, OpenTelemetry |
+| `fastapi-app-patterns` | Wire settings, lifespan, database sessions, Entra ID or JWT auth, and tests into a FastAPI app |
+
 ### go-best-practices
 Production Go patterns for writing, reviewing, and refactoring Go code.
 
