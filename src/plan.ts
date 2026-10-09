@@ -12,7 +12,7 @@ export type Step =
   | { kind: "skills"; source: string; skills: string[]; agents: AgentId[]; copy: boolean }
   | { kind: "mcp"; agent: AgentType; name: string; url: string }
   | { kind: "mcp-manual"; agent: AgentId; name: string; url: string }
-  | { kind: "login"; command: string; auth: string[]; login: string[] };
+  | { kind: "login"; command: string; auth: string[]; login: string[]; apiKey?: NonNullable<Tool["apiKey"]> };
 
 // What is already on the machine, probed once before planning.
 export interface Machine {
@@ -104,9 +104,8 @@ export function planSteps({ packs, agents, copy }: Choices, machine: Machine): S
   }
 
   for (const { tool } of tools) {
-    if (tool.auth && tool.login) {
-      steps.push({ kind: "login", command: tool.command, auth: tool.auth, login: tool.login });
-    }
+    const { command, auth, login, apiKey } = tool;
+    if (auth && login) steps.push({ kind: "login", command, auth, login, ...(apiKey && { apiKey }) });
   }
   return steps;
 }

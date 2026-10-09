@@ -145,9 +145,9 @@ function planSteps({ packs, agents, copy }, machine) {
     }
   }
   for (const { tool } of tools) {
-    if (tool.auth && tool.login) {
-      steps.push({ kind: "login", command: tool.command, auth: tool.auth, login: tool.login });
-    }
+    const { command, auth, login, apiKey } = tool;
+    if (auth && login)
+      steps.push({ kind: "login", command, auth, login, ...apiKey && { apiKey } });
   }
   return steps;
 }
@@ -210,6 +210,44 @@ async function isSignedIn(auth) {
   } catch {}
   return result.ok;
 }
+async function signIn(step, interactive) {
+  if (await isSignedIn(step.auth))
+    return { status: "skipped", detail: "already signed in" };
+  const browser = step.login.join(" ");
+  const later = step.apiKey ? `${browser} (or ${step.apiKey.login.join(" ")} <key>)` : browser;
+  if (!interactive)
+    return { status: "manual", detail: `run: ${later}` };
+  const method = await p.select({
+    message: `${step.command} is not signed in. Sign in now?`,
+    options: [
+      { value: "browser", label: `Browser sign-in (${browser})`, hint: "recommended" },
+      ...step.apiKey ? [{ value: "key", label: "Paste an API key" }] : [],
+      { value: "later", label: "Later" }
+    ]
+  });
+  if (p.isCancel(method) || method === "later")
+    return { status: "manual", detail: `run later: ${later}` };
+  if (method === "browser") {
+    await run(step.login, { inherit: true });
+    if (await isSignedIn(step.auth))
+      return { status: "done" };
+    if (step.apiKey)
+      p.log.warn("Browser sign-in did not finish. Paste an API key instead, or press Esc to skip.");
+  }
+  if (!step.apiKey)
+    return { status: "failed", detail: `still not signed in; run: ${browser}` };
+  const { login, url } = step.apiKey;
+  const key = await p.password({
+    message: `${step.command} API key${url ? ` (create one at ${url})` : ""}`,
+    validate: (value) => value?.trim() ? undefined : "Paste a key, or press Esc to skip"
+  });
+  if (p.isCancel(key))
+    return { status: "manual", detail: `run later: ${later}` };
+  const result = await run([...login, key.trim()]);
+  if (await isSignedIn(step.auth))
+    return { status: "done" };
+  return { status: "failed", detail: lastLine(result.stderr || result.stdout) || "key not accepted" };
+}
 async function runStep(step, interactive) {
   switch (step.kind) {
     case "uv": {
@@ -264,18 +302,8 @@ async function runStep(step, interactive) {
     }
     case "mcp-manual":
       return { status: "manual", detail: `add ${step.url} as "${step.name}"` };
-    case "login": {
-      if (await isSignedIn(step.auth))
-        return { status: "skipped", detail: "already signed in" };
-      const command = step.login.join(" ");
-      if (!interactive)
-        return { status: "manual", detail: `run: ${command}` };
-      const answer = await p.confirm({ message: `${step.command} is not signed in. Run \`${command}\` now?` });
-      if (p.isCancel(answer) || !answer)
-        return { status: "manual", detail: `run later: ${command}` };
-      await run(step.login, { inherit: true });
-      return await isSignedIn(step.auth) ? { status: "done" } : { status: "failed", detail: `still not signed in; run: ${command}` };
-    }
+    case "login":
+      return signIn(step, interactive);
   }
 }
 var usesTerminal = (step) => step.kind === "uv" || step.kind === "login";
@@ -315,7 +343,8 @@ var Tool = z.object({
   package: z.string(),
   command: z.string(),
   auth: z.array(z.string()).nonempty().optional(),
-  login: z.array(z.string()).nonempty().optional()
+  login: z.array(z.string()).nonempty().optional(),
+  apiKey: z.object({ login: z.array(z.string()).nonempty(), url: z.url().optional() }).optional()
 });
 var Manifest = z.object({
   uv: z.boolean().default(false),

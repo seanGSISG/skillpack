@@ -10,12 +10,14 @@ export const DEFAULT_REPO = "seanGSISG/cc-plugins";
 export class UsageError extends Error {}
 
 // A CLI the pack's skills call. `auth` reports sign-in status: a JSON `authenticated` field when it prints
-// one, otherwise its exit code. `login` signs in interactively.
+// one, otherwise its exit code. `login` signs in through the browser (OAuth). `apiKey` is the fallback:
+// its `login` argv gets the pasted key appended (`octen login --api-key <key>`); `url` is where to make one.
 const Tool = z.object({
   package: z.string(),
   command: z.string(),
   auth: z.array(z.string()).nonempty().optional(),
   login: z.array(z.string()).nonempty().optional(),
+  apiKey: z.object({ login: z.array(z.string()).nonempty(), url: z.url().optional() }).optional(),
 });
 export type Tool = z.infer<typeof Tool>;
 

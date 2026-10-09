@@ -1,142 +1,84 @@
 # skillpack
 
-One command that installs a **skill pack** into every coding agent on a machine: the skills, the CLIs they call,
-the MCP servers they expect, and sign-in. Claude Code gets the pack as its native plugin; every other agent gets
-symlinked skills plus MCP config.
+Installs a **skill pack** into every coding agent on a machine: its skills, the CLIs they call, its MCP servers,
+and sign-in. Claude Code gets the pack as a plugin; other agents get the skills in `~/.agents/skills` plus MCP config.
+
+## Install
+
+Needs Node, and `git` (or `gh`) signed in to GitHub, since the packs repo is private.
 
 ```sh
-npx github:seanGSISG/skillpack                      # choose packs from seanGSISG/cc-plugins
-npx github:seanGSISG/skillpack add web-tool-routing
-npx github:seanGSISG/skillpack add owner/repo/pack  # any Claude marketplace repo with skillpack.json
+npx github:seanGSISG/skillpack                       # pick packs from seanGSISG/cc-plugins
+npx github:seanGSISG/skillpack add web-tool-routing  # one pack
+npx github:seanGSISG/skillpack add owner/repo/pack   # a pack from another marketplace repo
 ```
 
-Private repo: the machine's `git` (or `gh`) must be signed in to GitHub.
+The wizard asks which agents to install for and whether to symlink or copy, shows the plan, then installs uv and
+the pack's CLIs, the Claude plugin, the skills and MCP servers for the other agents, and finally signs in each
+CLI that isn't: browser sign-in (OAuth) first, or a pasted API key where the CLI takes one.
 
-## Available packs
+- `--agent <id>` (repeatable): `claude-code`, `codex`, `pi`, `cursor`, `opencode`, `gemini-cli`, `github-copilot`,
+  `windsurf`, `goose`, `amp` (skills only).
+- `--yes`: no prompts, detected agents, sign-ins left to you. `--copy`: copy skills instead of symlinking.
+  `--dry-run`: print the plan only.
 
-Packs from the default marketplace, [seanGSISG/cc-plugins](https://github.com/seanGSISG/cc-plugins). Install one with
-`npx github:seanGSISG/skillpack add <pack>`.
+Re-running is safe: finished steps are skipped. Updates: `claude plugin update <pack>@cc-plugins` (Claude Code),
+`npx skills update -g` (other agents).
 
-### stash
-Move files between machines through a private Cloudflare R2 bucket over plain HTTPS. Installs `uv`.
+## Packs and skills
 
-| Skill | Use it to |
-|---|---|
-| `stash` | Upload, download, list and delete files, and make presigned share links |
+| Pack | Skill | What it does |
+|---|---|---|
+| babysit | `babysit` | Takes a PR from opened to merged: reviews, fixes, a scripted merge gate |
+| fastapi-best-practices | `fastapi` | The FastAPI team's own conventions (vendored official skill) |
+| | `fastapi-app-patterns` | Settings, lifespan, database sessions, Entra ID/JWT auth, tests |
+| go-best-practices | `go-best-practices` | Production Go: lifecycle, concurrency, config, testing, CI |
+| pack-author | `pack-author` | Builds, registers and releases packs for skillpack and cc-plugins |
+| stash | `stash` | Moves files between machines through a private R2 bucket; share links |
+| web-tool-routing | `web-tool-routing` | Picks Octen, Parallel or Tavily for each web task |
+| | `web-tool-setup` | Checks and installs the pack's CLIs and sign-ins |
+| | `octen-search` | Web and news search, multi-angle surveys (default search) |
+| | `octen-extract` | Reads URLs as markdown or query-focused highlights (default reader) |
+| | `tavily-map`, `tavily-crawl` | Lists a site's URLs; crawls a site to markdown |
+| | `tavily-search`, `tavily-extract`, `tavily-research`, `tavily-dynamic-search` | Tavily fallbacks for search, reading and research |
+| | `tavily-cli`, `tavily-best-practices` | Tavily CLI setup; reference for Tavily integrations |
 
-### babysit
-Take a PR from opened to merged: one Copilot review, up to two Argus (PR-Agent) rounds, then a scripted merge gate.
+web-tool-routing also installs Parallel's `parallel-deep-research`, `parallel-findall`, `parallel-data-enrichment`,
+`parallel-monitor` and `parallel-cli-setup` for non-Claude agents (Claude Code gets them from the Parallel plugin).
 
-| Skill | Use it to |
-|---|---|
-| `babysit` | Request and watch PR reviews, fix the real findings, and merge |
+## Making a pack
 
-### fastapi-best-practices
-Current FastAPI patterns for writing and reviewing FastAPI apps: the official FastAPI skill, vendored unmodified, plus a
-companion for the app plumbing it leaves out.
-
-| Skill | Use it to |
-|---|---|
-| `fastapi` | Follow the FastAPI team's conventions: `Annotated` dependencies, return types, routers, streaming, frontends, OpenTelemetry |
-| `fastapi-app-patterns` | Wire settings, lifespan, database sessions, Entra ID or JWT auth, and tests into a FastAPI app |
-
-### go-best-practices
-Production Go patterns for writing, reviewing, and refactoring Go code.
-
-| Skill | Use it to |
-|---|---|
-| `go-best-practices` | Apply lifecycle, concurrency, config, testing, and CI patterns to Go code |
-
-### pack-author
-Author and ship skills and plugins for skillpack and cc-plugins.
-
-| Skill | Use it to |
-|---|---|
-| `pack-author` | Scaffold a pack, write its manifests, register it, verify the install, and release updates |
-
-### web-tool-routing
-Route web work across Octen, Parallel and Tavily. Installs `uv`, the `octen` (npm), `tvly` and `parallel-cli` CLIs,
-and the Parallel Search MCP server.
-
-| Skill | Use it to |
-|---|---|
-| `web-tool-routing` | Pick between Octen, Parallel and Tavily for search, reading, crawling and research |
-| `web-tool-setup` | Check and install the CLIs and plugins the pack needs |
-| `octen-search` | Web search, news and multi-angle surveys through the Octen CLI (the default search) |
-| `octen-extract` | Read known URLs as clean markdown or query-focused highlights (the default page reader) |
-| `tavily-cli` | Install and sign in to the Tavily CLI |
-| `tavily-search` | Web search through Tavily (fallback) |
-| `tavily-extract` | Extract page content from URLs |
-| `tavily-map` | List the URLs on a site |
-| `tavily-crawl` | Crawl a site and save pages as markdown |
-| `tavily-research` | Tavily research reports with citations |
-| `tavily-dynamic-search` | Tavily search with output filtered out of context |
-| `tavily-best-practices` | Reference for building Tavily integrations |
-
-For non-Claude agents the pack also installs these skills from `parallel-web/parallel-agent-skills`:
-`parallel-deep-research`, `parallel-findall`, `parallel-data-enrichment`, `parallel-monitor` and `parallel-cli-setup`.
-
-## What the wizard does
-
-1. Clones the marketplace repo and finds plugins that ship a `skillpack.json`.
-2. Asks which agents to install for (detected ones pre-checked) and whether to symlink or copy.
-3. Installs **uv** if missing, then each CLI with `uv tool install`.
-4. **Claude Code**: adds the marketplaces and runs `claude plugin install <pack>@<marketplace>`; the plugin's
-   `dependencies` bring its MCP servers and skills.
-5. **Other agents**: `npx skills add <pack url> -g` (one canonical copy in `~/.agents/skills`, symlinked into each
-   agent), the pack's `skillSources`, and each MCP server via [add-mcp](https://add-mcp.com).
-6. Checks each CLI's sign-in and offers to run its login.
-
-Options: `--agent <id>` (repeatable), `--yes` (detected agents, symlinks, no prompts, logins left to you), `--copy`,
-`--dry-run`. Agents: `claude-code`, `codex`, `pi`, `cursor`, `opencode`, `gemini-cli`, `github-copilot`, `windsurf`,
-`goose`, `amp` (Amp gets skills only; its MCP servers are listed for you to add).
-
-Re-running is safe: steps already satisfied are skipped, including MCP servers an agent already has, so existing
-config files are not rewritten. The first MCP write to a file goes through add-mcp, which re-serializes it and drops
-comments in TOML/YAML configs (Codex, Goose); the original is kept once as `<config>.skillpack-backup`. An already-installed Claude plugin is not upgraded; use
-`claude plugin update <pack>@<marketplace>`. Skills update with `npx skills update -g`.
-
-## Pack manifest
-
-A pack is a Claude Code plugin directory with a `skillpack.json` beside `.claude-plugin/plugin.json`. Every
-`skills/*/SKILL.md` is installed. Skill names share `~/.agents/skills` with every other pack, so make them specific.
+A pack is a plugin in a Claude marketplace repo with a `skillpack.json` beside `.claude-plugin/plugin.json`; every
+`skills/*/SKILL.md` is installed. The `pack-author` skill walks through it.
 
 ```json
 {
   "uv": true,
-  "uvTools": [
-    { "package": "tavily-cli", "command": "tvly", "auth": ["tvly", "auth", "--json"], "login": ["tvly", "login"] }
-  ],
-  "npmTools": [
-    { "package": "@octen.ai/cli", "command": "octen", "auth": ["octen", "whoami", "--json"], "login": ["octen", "login"] }
-  ],
-  "mcpServers": { "exa": "https://mcp.exa.ai/mcp" },
+  "uvTools": [{ "package": "tavily-cli", "command": "tvly", "auth": ["tvly", "auth", "--json"], "login": ["tvly", "login"] }],
+  "npmTools": [{
+    "package": "@octen.ai/cli", "command": "octen", "auth": ["octen", "whoami", "--json"], "login": ["octen", "login"],
+    "apiKey": { "login": ["octen", "login", "--api-key"], "url": "https://octen.ai/platform/api-keys" }
+  }],
+  "mcpServers": { "parallel-search": "https://search.parallel.ai/mcp" },
   "claudeMarketplaces": { "parallel-agent-skills": "parallel-web/parallel-agent-skills" },
   "skillSources": [{ "source": "parallel-web/parallel-agent-skills", "skills": ["parallel-deep-research"] }]
 }
 ```
 
-| Field | Used for |
-|---|---|
-| `uv`, `uvTools` | Install uv and these tools (`uv tool install`) everywhere. |
-| `npmTools` | Install these tools with `npm install -g`. Node is already there, since skillpack runs on it. |
-| `auth`, `login` (per tool) | `auth` reports sign-in: JSON with `authenticated: true`, or, when it prints no such field, exit code 0. `login` signs in; the wizard offers it when `auth` says no. |
-| `mcpServers` | Remote MCP servers written into non-Claude agents (Claude gets them from plugin `dependencies`). |
-| `claudeMarketplaces` | Repos for the marketplaces the plugin's `dependencies` live in, added if missing. |
-| `skillSources` | Skills from other repos that non-Claude agents need (Claude gets them from plugin `dependencies`). |
+- `uv`: install uv (set it when a script runs via `uv run`).
+- `uvTools` / `npmTools`: CLIs installed with `uv tool install` / `npm install -g`. `auth` reports sign-in (JSON
+  `authenticated: true`, or exit code 0); `login` is the browser sign-in; `apiKey.login` gets a pasted key appended.
+- `mcpServers`, `skillSources`: for non-Claude agents; Claude Code gets both through the plugin's `dependencies`.
+- `claudeMarketplaces`: repos for the marketplaces those `dependencies` live in.
 
 ## Development
 
 ```sh
-bun install
-bun test            # planner tests
-bun run typecheck
-bun run bundle      # writes dist/cli.mjs; commit it, since npx github: runs dist directly
+bun install && bun test && bun run typecheck
+bun run bundle   # writes dist/cli.mjs; commit it, since npx github: runs dist directly
 node dist/cli.mjs add web-tool-routing --dry-run
 ```
 
-`src/plan.ts` is the core: choices + manifest + machine state → ordered steps. `src/run.ts` executes them.
-
-Keep `build`, `prepare`, `prepack`, and install hooks out of `package.json` scripts: any of them makes npm run
-"git dep preparation" (an inner `npm install`) for `npx github:`, which fails silently on npm ≥ 11.17 when
-`allow-scripts` is set in a user `.npmrc` ([npm/cli#9783](https://github.com/npm/cli/issues/9783)).
+`src/plan.ts` turns choices + manifest + machine state into steps; `src/run.ts` runs them. Keep `build`, `prepare`,
+`prepack` and install hooks out of `package.json`: they make `npx github:` run an inner `npm install` that fails
+silently on npm ≥ 11.17 when `allow-scripts` is set ([npm/cli#9783](https://github.com/npm/cli/issues/9783)).

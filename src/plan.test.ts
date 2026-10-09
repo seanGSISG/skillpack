@@ -1,6 +1,6 @@
 import { describe as group, expect, test } from "bun:test";
 import { type Machine, planSteps, type Step } from "./plan.ts";
-import type { Pack } from "./source.ts";
+import type { Pack, Tool } from "./source.ts";
 
 const pack: Pack = {
   name: "web-tool-routing",
@@ -68,12 +68,18 @@ group("planSteps", () => {
   });
 
   test("npm tools install with npm, need no uv, and get a sign-in check", () => {
-    const octen = { package: "@octen.ai/cli", command: "octen", auth: ["octen", "whoami", "--json"], login: ["octen", "login"] };
+    const octen = {
+      package: "@octen.ai/cli",
+      command: "octen",
+      auth: ["octen", "whoami", "--json"],
+      login: ["octen", "login"],
+      apiKey: { login: ["octen", "login", "--api-key"], url: "https://octen.ai/platform/api-keys" },
+    } satisfies Tool;
     const npmPack: Pack = { ...pack, manifest: { ...pack.manifest, uv: false, uvTools: [], npmTools: [octen] } };
     const steps = planSteps({ packs: [npmPack], agents: ["claude-code"], copy: false }, machine([]));
     expect(steps[0]).toEqual({ kind: "tool", manager: "npm", tool: octen });
     expect(kinds(steps)).not.toContain("uv");
-    expect(steps.at(-1)).toEqual({ kind: "login", command: "octen", auth: octen.auth, login: octen.login });
+    expect(steps.at(-1)).toEqual({ kind: "login", command: "octen", auth: octen.auth, login: octen.login, apiKey: octen.apiKey });
   });
 
   test("--copy reaches every skills step", () => {
