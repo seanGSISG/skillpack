@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import spawn from "cross-spawn";
 import { accessSync, constants } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -27,15 +27,14 @@ export interface RunResult {
 }
 
 // Runs argv to completion without blocking the event loop, so spinners keep animating.
-// `inherit` hands the terminal to the child (logins, installers).
+// `inherit` hands the terminal to the child (logins, installers). cross-spawn runs Windows .cmd shims (npx,
+// npm-installed CLIs) through cmd.exe with each argument escaped, so `|` or `&` in an argument stays literal.
+// Passing the resolved path keeps cmd.exe from searching PATH itself, which a stray `"` entry breaks.
 export function run(argv: readonly string[], { inherit = false } = {}): Promise<RunResult> {
   const [command, ...args] = argv;
   if (!command) throw new Error("run: empty argv");
   return new Promise((resolve) => {
-    const child = spawn(command, args, {
-      stdio: inherit ? "inherit" : ["ignore", "pipe", "pipe"],
-      shell: isWindows, // npx / claude are .cmd shims on Windows
-    });
+    const child = spawn(which(command) ?? command, args, { stdio: inherit ? "inherit" : ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk: Buffer) => (stdout += chunk));

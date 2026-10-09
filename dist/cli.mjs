@@ -9,7 +9,7 @@ import { parseArgs } from "node:util";
 import { agents as mcpAgents } from "add-mcp";
 
 // src/system.ts
-import { spawn } from "node:child_process";
+import spawn from "cross-spawn";
 import { accessSync, constants } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -32,10 +32,7 @@ function run(argv, { inherit = false } = {}) {
   if (!command)
     throw new Error("run: empty argv");
   return new Promise((resolve) => {
-    const child = spawn(command, args, {
-      stdio: inherit ? "inherit" : ["ignore", "pipe", "pipe"],
-      shell: isWindows
-    });
+    const child = spawn(which(command) ?? command, args, { stdio: inherit ? "inherit" : ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk) => stdout += chunk);
