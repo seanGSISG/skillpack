@@ -34,6 +34,7 @@ Anything already installed is brought up to date instead: CLIs upgrade, marketpl
 | babysit | `babysit` | Takes a PR from opened to merged: reviews, fixes, a scripted merge gate |
 | fastapi-best-practices | `fastapi` | The FastAPI team's own conventions (vendored official skill) |
 | | `fastapi-app-patterns` | Settings, lifespan, database sessions, Entra ID/JWT auth, tests |
+| herdr-ops | `herdr-ops` | Runs and drives terminal work and agents on spark, cachy and dh01 through Herdr |
 | go-best-practices | `go-best-practices` | Production Go: lifecycle, concurrency, config, testing, CI |
 | pack-author | `pack-author` | Builds, registers and releases packs for skillpack and cc-plugins |
 | stash | `stash` | Moves files between machines through a private R2 bucket; share links |
@@ -47,6 +48,7 @@ Anything already installed is brought up to date instead: CLIs upgrade, marketpl
 
 web-tool-routing also installs Parallel's `parallel-deep-research`, `parallel-findall`, `parallel-data-enrichment`,
 `parallel-monitor` and `parallel-cli-setup` for non-Claude agents (Claude Code gets them from the Parallel plugin).
+herdr-ops also installs Herdr's own `herdr` skill for non-Claude agents (Claude Code reads it with `herdr --skill`).
 
 ## Making a pack
 
