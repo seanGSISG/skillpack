@@ -101,11 +101,14 @@ export const localPluginPaths = (marketplace: z.infer<typeof MarketplaceJson>): 
     typeof entry.source === "string" ? [entry.source.replace(/^\.\//, "")] : [],
   );
 
-// Skill folder names under a plugin: every `skills/<name>/` holding a SKILL.md.
+// Skill folder names under a plugin, sorted: every `skills/<name>/` holding a SKILL.md. Sorted because
+// readdirSync order varies by filesystem (alphabetical on NTFS, arbitrary on ext4).
 export function listSkills(pluginRoot: string): string[] {
   const skillsDir = join(pluginRoot, "skills");
   return existsSync(skillsDir)
-    ? readdirSync(skillsDir).filter((name) => existsSync(join(skillsDir, name, "SKILL.md")))
+    ? readdirSync(skillsDir)
+        .filter((name) => existsSync(join(skillsDir, name, "SKILL.md")))
+        .sort()
     : [];
 }
 

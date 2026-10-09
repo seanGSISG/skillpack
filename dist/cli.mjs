@@ -411,7 +411,7 @@ var readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
 var localPluginPaths = (marketplace) => marketplace.plugins.flatMap((entry) => typeof entry.source === "string" ? [entry.source.replace(/^\.\//, "")] : []);
 function listSkills(pluginRoot) {
   const skillsDir = join3(pluginRoot, "skills");
-  return existsSync2(skillsDir) ? readdirSync2(skillsDir).filter((name) => existsSync2(join3(skillsDir, name, "SKILL.md"))) : [];
+  return existsSync2(skillsDir) ? readdirSync2(skillsDir).filter((name) => existsSync2(join3(skillsDir, name, "SKILL.md"))).sort() : [];
 }
 function loadPacks(dir, repo, ref) {
   const marketplace = MarketplaceJson.parse(readJson(join3(dir, ".claude-plugin/marketplace.json")));
