@@ -8,10 +8,12 @@ and sign-in. Claude Code gets the pack as a plugin; other agents get the skills 
 Needs Node, and `git` (or `gh`) signed in to GitHub, since the packs repo is private.
 
 ```sh
-npx github:seanGSISG/skillpack                       # pick packs from seanGSISG/cc-plugins
-npx github:seanGSISG/skillpack add web-tool-routing  # one pack
-npx github:seanGSISG/skillpack add owner/repo/pack   # a pack from another marketplace repo
+npx --allow-git=root github:seanGSISG/skillpack                       # pick packs from seanGSISG/cc-plugins
+npx --allow-git=root github:seanGSISG/skillpack add web-tool-routing  # one pack
+npx --allow-git=root github:seanGSISG/skillpack add owner/repo/pack   # a pack from another marketplace repo
 ```
+
+`--allow-git=root` lets npm fetch skillpack itself from GitHub; npm 12 refuses git packages by default (`EALLOWGIT`).
 
 The wizard asks which agents to install for and whether to symlink or copy, shows the plan, then installs uv and
 the pack's CLIs, the Claude plugin, the skills and MCP servers for the other agents, and finally signs in each
