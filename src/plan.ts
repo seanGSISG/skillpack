@@ -1,10 +1,12 @@
 import type { AgentType } from "add-mcp";
 import { AGENTS, type AgentId } from "./agents.ts";
-import type { Pack, UvTool } from "./source.ts";
+import type { Pack, Tool } from "./source.ts";
+
+export type ToolManager = "uv" | "npm";
 
 export type Step =
   | { kind: "uv" }
-  | { kind: "uv-tool"; tool: UvTool }
+  | { kind: "tool"; manager: ToolManager; tool: Tool }
   | { kind: "claude-marketplace"; name: string; repo: string }
   | { kind: "claude-plugin"; id: string }
   | { kind: "skills"; source: string; skills: string[]; agents: AgentId[]; copy: boolean }
@@ -38,14 +40,16 @@ export function planSteps({ packs, agents, copy }: Choices, machine: Machine): S
   const claude = agents.includes("claude-code");
   const others = agents.filter((id) => id !== "claude-code");
 
-  const tools = uniqueBy(
-    packs.flatMap((pack) => pack.manifest.uvTools),
-    (tool) => tool.package,
-  );
-  const needsUv = packs.some((pack) => pack.manifest.uv) || tools.length > 0;
+  const toolsFor = (manager: ToolManager) =>
+    uniqueBy(
+      packs.flatMap((pack) => (manager === "uv" ? pack.manifest.uvTools : pack.manifest.npmTools)),
+      (tool) => tool.package,
+    ).map((tool) => ({ manager, tool }));
+  const tools = [...toolsFor("uv"), ...toolsFor("npm")];
+  const needsUv = packs.some((pack) => pack.manifest.uv) || tools.some(({ manager }) => manager === "uv");
   if (needsUv && !machine.has("uv")) steps.push({ kind: "uv" });
-  for (const tool of tools) {
-    if (!machine.has(tool.command)) steps.push({ kind: "uv-tool", tool });
+  for (const { manager, tool } of tools) {
+    if (!machine.has(tool.command)) steps.push({ kind: "tool", manager, tool });
   }
 
   if (claude) {
@@ -99,7 +103,7 @@ export function planSteps({ packs, agents, copy }: Choices, machine: Machine): S
     }
   }
 
-  for (const tool of tools) {
+  for (const { tool } of tools) {
     if (tool.auth && tool.login) {
       steps.push({ kind: "login", command: tool.command, auth: tool.auth, login: tool.login });
     }
@@ -111,8 +115,10 @@ export function describe(step: Step): string {
   switch (step.kind) {
     case "uv":
       return "Install uv";
-    case "uv-tool":
-      return `Install ${step.tool.command} (uv tool install ${step.tool.package})`;
+    case "tool": {
+      const install = step.manager === "uv" ? "uv tool install" : "npm install -g";
+      return `Install ${step.tool.command} (${install} ${step.tool.package})`;
+    }
     case "claude-marketplace":
       return `Add Claude marketplace ${step.name} (${step.repo})`;
     case "claude-plugin":

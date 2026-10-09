@@ -105,6 +105,9 @@ A pack is a Claude Code plugin directory with a `skillpack.json` beside `.claude
   "uvTools": [
     { "package": "tavily-cli", "command": "tvly", "auth": ["tvly", "auth", "--json"], "login": ["tvly", "login"] }
   ],
+  "npmTools": [
+    { "package": "@octen.ai/cli", "command": "octen", "auth": ["octen", "whoami", "--json"], "login": ["octen", "login"] }
+  ],
   "mcpServers": { "exa": "https://mcp.exa.ai/mcp" },
   "claudeMarketplaces": { "parallel-agent-skills": "parallel-web/parallel-agent-skills" },
   "skillSources": [{ "source": "parallel-web/parallel-agent-skills", "skills": ["parallel-deep-research"] }]
@@ -113,7 +116,9 @@ A pack is a Claude Code plugin directory with a `skillpack.json` beside `.claude
 
 | Field | Used for |
 |---|---|
-| `uv`, `uvTools` | Install uv and these tools everywhere. `auth` must print JSON with `authenticated: true` when signed in. |
+| `uv`, `uvTools` | Install uv and these tools (`uv tool install`) everywhere. |
+| `npmTools` | Install these tools with `npm install -g`. Node is already there, since skillpack runs on it. |
+| `auth`, `login` (per tool) | `auth` reports sign-in: JSON with `authenticated: true`, or, when it prints no such field, exit code 0. `login` signs in; the wizard offers it when `auth` says no. |
 | `mcpServers` | Remote MCP servers written into non-Claude agents (Claude gets them from plugin `dependencies`). |
 | `claudeMarketplaces` | Repos for the marketplaces the plugin's `dependencies` live in, added if missing. |
 | `skillSources` | Skills from other repos that non-Claude agents need (Claude gets them from plugin `dependencies`). |

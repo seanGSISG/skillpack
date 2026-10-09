@@ -53,7 +53,7 @@ export async function runJson(argv: readonly string[]): Promise<unknown> {
   }
 }
 
-// Makes binaries installed during this run (uv, uv tools) visible to later steps.
+// Makes binaries installed during this run (uv, uv and npm tools) visible to later steps.
 export function prependPath(dir: string): void {
   if (!(process.env.PATH ?? "").split(delimiter).includes(dir)) {
     process.env.PATH = `${dir}${delimiter}${process.env.PATH ?? ""}`;
@@ -66,3 +66,6 @@ export const UV_INSTALL: readonly string[] = isWindows
 
 // Where the uv installer puts `uv` by default.
 export const UV_DEFAULT_BIN = join(homedir(), ".local", "bin");
+
+// Where `npm install -g` puts commands, given `npm prefix -g`: the prefix itself on Windows, its `bin` elsewhere.
+export const npmGlobalBin = (prefix: string): string => (isWindows ? prefix : join(prefix, "bin"));

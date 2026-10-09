@@ -3,7 +3,7 @@ import { agents as mcpAgents, type AgentType, listInstalledServers, upsertServer
 import { copyFileSync, existsSync } from "node:fs";
 import { AGENTS, type AgentId } from "./agents.ts";
 import { describe, type Machine, type Step } from "./plan.ts";
-import { prependPath, run, runJson, UV_DEFAULT_BIN, UV_INSTALL, which } from "./system.ts";
+import { npmGlobalBin, prependPath, run, runJson, UV_DEFAULT_BIN, UV_INSTALL, which } from "./system.ts";
 
 export type Status = "done" | "skipped" | "failed" | "manual";
 
@@ -42,9 +42,17 @@ export async function probeMachine(agents: AgentId[]): Promise<Machine> {
   return { has: (command) => which(command) !== undefined, claudeMarketplaces, claudePlugins, mcpServers };
 }
 
+// Signed in when the auth command's JSON says `authenticated: true`. Commands that print no such field
+// (`octen whoami --json`) report it through their exit code instead.
 async function isSignedIn(auth: string[]): Promise<boolean> {
-  const status = await runJson(auth);
-  return typeof status === "object" && status !== null && "authenticated" in status && status.authenticated === true;
+  const result = await run(auth);
+  try {
+    const status: unknown = JSON.parse(result.stdout);
+    if (typeof status === "object" && status !== null && "authenticated" in status) {
+      return status.authenticated === true;
+    }
+  } catch {}
+  return result.ok;
 }
 
 async function runStep(step: Step, interactive: boolean): Promise<Omit<Outcome, "step">> {
@@ -54,13 +62,19 @@ async function runStep(step: Step, interactive: boolean): Promise<Omit<Outcome, 
       prependPath(UV_DEFAULT_BIN);
       return which("uv") ? { status: "done" } : { status: "failed", detail: "uv not found after install" };
     }
-    case "uv-tool": {
-      const result = await run(["uv", "tool", "install", step.tool.package]);
+    case "tool": {
+      const { manager, tool } = step;
+      const uv = manager === "uv";
+      const result = await run(uv ? ["uv", "tool", "install", tool.package] : ["npm", "install", "-g", tool.package]);
       if (!result.ok) return { status: "failed", detail: lastLine(result.stderr) };
-      prependPath((await run(["uv", "tool", "dir", "--bin"])).stdout.trim());
-      return which(step.tool.command)
-        ? { status: "done" }
-        : { status: "failed", detail: "installed, but not on PATH; run: uv tool update-shell" };
+      prependPath(
+        uv
+          ? (await run(["uv", "tool", "dir", "--bin"])).stdout.trim()
+          : npmGlobalBin((await run(["npm", "prefix", "-g"])).stdout.trim()),
+      );
+      if (which(tool.command)) return { status: "done" };
+      const fix = uv ? "run: uv tool update-shell" : "add npm's global bin (npm prefix -g) to PATH";
+      return { status: "failed", detail: `installed, but not on PATH; ${fix}` };
     }
     case "claude-marketplace": {
       const result = await run(["claude", "plugin", "marketplace", "add", step.repo]);

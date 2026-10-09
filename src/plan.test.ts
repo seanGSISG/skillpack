@@ -15,6 +15,7 @@ const pack: Pack = {
     uvTools: [
       { package: "tavily-cli", command: "tvly", auth: ["tvly", "auth", "--json"], login: ["tvly", "login"] },
     ],
+    npmTools: [],
     mcpServers: { "parallel-search": "https://search.parallel.ai/mcp" },
     claudeMarketplaces: { "parallel-agent-skills": "parallel-web/parallel-agent-skills" },
     skillSources: [{ source: "parallel-web/parallel-agent-skills", skills: ["parallel-deep-research"] }],
@@ -63,7 +64,16 @@ group("planSteps", () => {
 
   test("missing uv and CLI are installed first", () => {
     const steps = planSteps({ packs: [pack], agents: ["codex"], copy: false }, machine([]));
-    expect(kinds(steps).slice(0, 2)).toEqual(["uv", "uv-tool"]);
+    expect(kinds(steps).slice(0, 2)).toEqual(["uv", "tool"]);
+  });
+
+  test("npm tools install with npm, need no uv, and get a sign-in check", () => {
+    const octen = { package: "@octen.ai/cli", command: "octen", auth: ["octen", "whoami", "--json"], login: ["octen", "login"] };
+    const npmPack: Pack = { ...pack, manifest: { ...pack.manifest, uv: false, uvTools: [], npmTools: [octen] } };
+    const steps = planSteps({ packs: [npmPack], agents: ["claude-code"], copy: false }, machine([]));
+    expect(steps[0]).toEqual({ kind: "tool", manager: "npm", tool: octen });
+    expect(kinds(steps)).not.toContain("uv");
+    expect(steps.at(-1)).toEqual({ kind: "login", command: "octen", auth: octen.auth, login: octen.login });
   });
 
   test("--copy reaches every skills step", () => {

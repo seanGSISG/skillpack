@@ -9,19 +9,23 @@ export const DEFAULT_REPO = "seanGSISG/cc-plugins";
 // A mistake in what the user asked for; the CLI prints the message without a stack trace.
 export class UsageError extends Error {}
 
+// A CLI the pack's skills call. `auth` reports sign-in status: a JSON `authenticated` field when it prints
+// one, otherwise its exit code. `login` signs in interactively.
+const Tool = z.object({
+  package: z.string(),
+  command: z.string(),
+  auth: z.array(z.string()).nonempty().optional(),
+  login: z.array(z.string()).nonempty().optional(),
+});
+export type Tool = z.infer<typeof Tool>;
+
 // `skillpack.json`, next to a plugin's `.claude-plugin/plugin.json`: what the pack needs beyond its skills.
 const Manifest = z.object({
   uv: z.boolean().default(false),
-  uvTools: z
-    .array(
-      z.object({
-        package: z.string(),
-        command: z.string(),
-        auth: z.array(z.string()).nonempty().optional(),
-        login: z.array(z.string()).nonempty().optional(),
-      }),
-    )
-    .default([]),
+  // Installed with `uv tool install`.
+  uvTools: z.array(Tool).default([]),
+  // Installed with `npm install -g`; Node is already present, since skillpack runs on it.
+  npmTools: z.array(Tool).default([]),
   // Remote MCP servers for non-Claude agents; Claude Code gets them through plugin dependencies.
   mcpServers: z.record(z.string(), z.url()).default({}),
   // Marketplace name -> GitHub repo, for marketplaces the plugin's dependencies live in.
@@ -30,7 +34,6 @@ const Manifest = z.object({
   skillSources: z.array(z.object({ source: z.string(), skills: z.array(z.string()).nonempty() })).default([]),
 });
 export type Manifest = z.infer<typeof Manifest>;
-export type UvTool = Manifest["uvTools"][number];
 
 const PluginJson = z.object({
   name: z.string(),

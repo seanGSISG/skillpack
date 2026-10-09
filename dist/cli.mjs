@@ -58,6 +58,7 @@ function prependPath(dir) {
 }
 var UV_INSTALL = isWindows ? ["powershell", "-ExecutionPolicy", "ByPass", "-c", "irm https://astral.sh/uv/install.ps1 | iex"] : ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"];
 var UV_DEFAULT_BIN = join(homedir(), ".local", "bin");
+var npmGlobalBin = (prefix) => isWindows ? prefix : join(prefix, "bin");
 
 // src/agents.ts
 var AGENTS = {
@@ -91,13 +92,14 @@ function planSteps({ packs, agents, copy }, machine) {
   const steps = [];
   const claude = agents.includes("claude-code");
   const others = agents.filter((id) => id !== "claude-code");
-  const tools = uniqueBy(packs.flatMap((pack) => pack.manifest.uvTools), (tool) => tool.package);
-  const needsUv = packs.some((pack) => pack.manifest.uv) || tools.length > 0;
+  const toolsFor = (manager) => uniqueBy(packs.flatMap((pack) => manager === "uv" ? pack.manifest.uvTools : pack.manifest.npmTools), (tool) => tool.package).map((tool) => ({ manager, tool }));
+  const tools = [...toolsFor("uv"), ...toolsFor("npm")];
+  const needsUv = packs.some((pack) => pack.manifest.uv) || tools.some(({ manager }) => manager === "uv");
   if (needsUv && !machine.has("uv"))
     steps.push({ kind: "uv" });
-  for (const tool of tools) {
+  for (const { manager, tool } of tools) {
     if (!machine.has(tool.command))
-      steps.push({ kind: "uv-tool", tool });
+      steps.push({ kind: "tool", manager, tool });
   }
   if (claude) {
     const marketplaces = uniqueBy(packs.flatMap((pack) => [
@@ -142,7 +144,7 @@ function planSteps({ packs, agents, copy }, machine) {
       }
     }
   }
-  for (const tool of tools) {
+  for (const { tool } of tools) {
     if (tool.auth && tool.login) {
       steps.push({ kind: "login", command: tool.command, auth: tool.auth, login: tool.login });
     }
@@ -153,8 +155,10 @@ function describe(step) {
   switch (step.kind) {
     case "uv":
       return "Install uv";
-    case "uv-tool":
-      return `Install ${step.tool.command} (uv tool install ${step.tool.package})`;
+    case "tool": {
+      const install = step.manager === "uv" ? "uv tool install" : "npm install -g";
+      return `Install ${step.tool.command} (${install} ${step.tool.package})`;
+    }
     case "claude-marketplace":
       return `Add Claude marketplace ${step.name} (${step.repo})`;
     case "claude-plugin":
@@ -197,8 +201,14 @@ async function probeMachine(agents) {
   return { has: (command) => which(command) !== undefined, claudeMarketplaces, claudePlugins, mcpServers };
 }
 async function isSignedIn(auth) {
-  const status = await runJson(auth);
-  return typeof status === "object" && status !== null && "authenticated" in status && status.authenticated === true;
+  const result = await run(auth);
+  try {
+    const status = JSON.parse(result.stdout);
+    if (typeof status === "object" && status !== null && "authenticated" in status) {
+      return status.authenticated === true;
+    }
+  } catch {}
+  return result.ok;
 }
 async function runStep(step, interactive) {
   switch (step.kind) {
@@ -207,12 +217,17 @@ async function runStep(step, interactive) {
       prependPath(UV_DEFAULT_BIN);
       return which("uv") ? { status: "done" } : { status: "failed", detail: "uv not found after install" };
     }
-    case "uv-tool": {
-      const result = await run(["uv", "tool", "install", step.tool.package]);
+    case "tool": {
+      const { manager, tool } = step;
+      const uv = manager === "uv";
+      const result = await run(uv ? ["uv", "tool", "install", tool.package] : ["npm", "install", "-g", tool.package]);
       if (!result.ok)
         return { status: "failed", detail: lastLine(result.stderr) };
-      prependPath((await run(["uv", "tool", "dir", "--bin"])).stdout.trim());
-      return which(step.tool.command) ? { status: "done" } : { status: "failed", detail: "installed, but not on PATH; run: uv tool update-shell" };
+      prependPath(uv ? (await run(["uv", "tool", "dir", "--bin"])).stdout.trim() : npmGlobalBin((await run(["npm", "prefix", "-g"])).stdout.trim()));
+      if (which(tool.command))
+        return { status: "done" };
+      const fix = uv ? "run: uv tool update-shell" : "add npm's global bin (npm prefix -g) to PATH";
+      return { status: "failed", detail: `installed, but not on PATH; ${fix}` };
     }
     case "claude-marketplace": {
       const result = await run(["claude", "plugin", "marketplace", "add", step.repo]);
@@ -296,14 +311,16 @@ var DEFAULT_REPO = "seanGSISG/cc-plugins";
 
 class UsageError extends Error {
 }
+var Tool = z.object({
+  package: z.string(),
+  command: z.string(),
+  auth: z.array(z.string()).nonempty().optional(),
+  login: z.array(z.string()).nonempty().optional()
+});
 var Manifest = z.object({
   uv: z.boolean().default(false),
-  uvTools: z.array(z.object({
-    package: z.string(),
-    command: z.string(),
-    auth: z.array(z.string()).nonempty().optional(),
-    login: z.array(z.string()).nonempty().optional()
-  })).default([]),
+  uvTools: z.array(Tool).default([]),
+  npmTools: z.array(Tool).default([]),
   mcpServers: z.record(z.string(), z.url()).default({}),
   claudeMarketplaces: z.record(z.string(), z.string()).default({}),
   skillSources: z.array(z.object({ source: z.string(), skills: z.array(z.string()).nonempty() })).default([])
