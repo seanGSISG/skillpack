@@ -55,13 +55,15 @@ Author and ship skills and plugins for skillpack and cc-plugins.
 | `pack-author` | Scaffold a pack, write its manifests, register it, verify the install, and release updates |
 
 ### web-tool-routing
-Route web work across Parallel, Exa and Tavily. Installs `uv`, the `tvly` and `parallel-cli` CLIs, and the Exa and
-Parallel Search MCP servers.
+Route web work across Octen, Parallel and Tavily. Installs `uv`, the `octen` (npm), `tvly` and `parallel-cli` CLIs,
+and the Parallel Search MCP server.
 
 | Skill | Use it to |
 |---|---|
-| `web-tool-routing` | Pick between Parallel, Exa and Tavily for search, reading, crawling and research |
+| `web-tool-routing` | Pick between Octen, Parallel and Tavily for search, reading, crawling and research |
 | `web-tool-setup` | Check and install the CLIs and plugins the pack needs |
+| `octen-search` | Web search, news and multi-angle surveys through the Octen CLI (the default search) |
+| `octen-extract` | Read known URLs as clean markdown or query-focused highlights (the default page reader) |
 | `tavily-cli` | Install and sign in to the Tavily CLI |
 | `tavily-search` | Web search through Tavily (fallback) |
 | `tavily-extract` | Extract page content from URLs |
