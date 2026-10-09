@@ -1,6 +1,8 @@
 import * as p from "@clack/prompts";
 import { agents as mcpAgents, type AgentType, listInstalledServers, upsertServer } from "add-mcp";
-import { copyFileSync, existsSync } from "node:fs";
+import { copyFileSync, existsSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { AGENTS, type AgentId } from "./agents.ts";
 import { describe, type Machine, type Step } from "./plan.ts";
 import { npmGlobalBin, prependPath, run, runJson, UV_DEFAULT_BIN, UV_INSTALL, which } from "./system.ts";
@@ -39,7 +41,9 @@ export async function probeMachine(agents: AgentId[]): Promise<Machine> {
   const mcpServers = new Map<AgentType, Set<string>>(
     installed.map((agent) => [agent.agentType, new Set(agent.servers.map((server) => server.serverName))]),
   );
-  return { has: (command) => which(command) !== undefined, claudeMarketplaces, claudePlugins, mcpServers };
+  const skillsDir = join(homedir(), ".agents", "skills");
+  const agentSkills = new Set(existsSync(skillsDir) ? readdirSync(skillsDir) : []);
+  return { has: (command) => which(command) !== undefined, claudeMarketplaces, claudePlugins, agentSkills, mcpServers };
 }
 
 // Signed in when the auth command's JSON says `authenticated: true`. Commands that print no such field
@@ -56,21 +60,31 @@ async function isSignedIn(auth: string[]): Promise<boolean> {
 }
 
 type LoginStep = Extract<Step, { kind: "login" }>;
+type SignInMethod = "browser" | "key" | "later";
 
-// Browser sign-in (OAuth) first; a pasted API key when the tool takes one and the browser is skipped or fails.
+// Browser sign-in first, except over SSH when the tool takes a pasted key: the browser's OAuth callback
+// goes to the remote machine's loopback port, which a browser on the local machine cannot reach.
+export function signInOptions(step: LoginStep, overSsh: boolean): { value: SignInMethod; label: string; hint?: string }[] {
+  const browser = { value: "browser", label: `Browser sign-in (${step.login.join(" ")})` } as const;
+  const later = { value: "later", label: "Later" } as const;
+  if (!step.apiKey) return [{ ...browser, hint: "recommended" }, later];
+  const key = { value: "key", label: "Paste an API key" } as const;
+  return overSsh
+    ? [{ ...key, hint: "recommended over SSH" }, browser, later]
+    : [{ ...browser, hint: "recommended" }, key, later];
+}
+
+// Asks how to sign in (see signInOptions); a failed browser sign-in falls through to the key prompt.
 async function signIn(step: LoginStep, interactive: boolean): Promise<Omit<Outcome, "step">> {
   if (await isSignedIn(step.auth)) return { status: "skipped", detail: "already signed in" };
   const browser = step.login.join(" ");
   const later = step.apiKey ? `${browser} (or ${step.apiKey.login.join(" ")} <key>)` : browser;
   if (!interactive) return { status: "manual", detail: `run: ${later}` };
 
-  const method = await p.select<"browser" | "key" | "later">({
+  const overSsh = Boolean(process.env.SSH_CONNECTION || process.env.SSH_TTY);
+  const method = await p.select<SignInMethod>({
     message: `${step.command} is not signed in. Sign in now?`,
-    options: [
-      { value: "browser", label: `Browser sign-in (${browser})`, hint: "recommended" },
-      ...(step.apiKey ? [{ value: "key" as const, label: "Paste an API key" }] : []),
-      { value: "later", label: "Later" },
-    ],
+    options: signInOptions(step, overSsh),
   });
   if (p.isCancel(method) || method === "later") return { status: "manual", detail: `run later: ${later}` };
   if (method === "browser") {
@@ -99,10 +113,21 @@ async function runStep(step: Step, interactive: boolean): Promise<Omit<Outcome, 
       return which("uv") ? { status: "done" } : { status: "failed", detail: "uv not found after install" };
     }
     case "tool": {
-      const { manager, tool } = step;
+      const { action, manager, tool } = step;
       const uv = manager === "uv";
-      const result = await run(uv ? ["uv", "tool", "install", tool.package] : ["npm", "install", "-g", tool.package]);
-      if (!result.ok) return { status: "failed", detail: lastLine(result.stderr) };
+      const result = await run(
+        uv
+          ? ["uv", "tool", action, tool.package]
+          : ["npm", "install", "-g", action === "upgrade" ? `${tool.package}@latest` : tool.package],
+      );
+      if (!result.ok) {
+        // A CLI installed some other way (pipx, a vendor script) is on PATH but unknown to uv; leave it be.
+        if (uv && action === "upgrade" && result.stderr.includes("is not installed")) {
+          return { status: "skipped", detail: "not installed with uv; left as is" };
+        }
+        return { status: "failed", detail: lastLine(result.stderr) };
+      }
+      if (action === "upgrade") return { status: "done" };
       prependPath(
         uv
           ? (await run(["uv", "tool", "dir", "--bin"])).stdout.trim()
@@ -113,12 +138,15 @@ async function runStep(step: Step, interactive: boolean): Promise<Omit<Outcome, 
       return { status: "failed", detail: `installed, but not on PATH; ${fix}` };
     }
     case "claude-marketplace": {
-      const result = await run(["claude", "plugin", "marketplace", "add", step.repo]);
+      const target = step.action === "add" ? step.repo : step.name;
+      const result = await run(["claude", "plugin", "marketplace", step.action, target]);
       return result.ok ? { status: "done" } : { status: "failed", detail: lastLine(result.stderr) };
     }
     case "claude-plugin": {
-      const result = await run(["claude", "plugin", "install", step.id]);
-      return result.ok ? { status: "done" } : { status: "failed", detail: lastLine(result.stderr || result.stdout) };
+      const result = await run(["claude", "plugin", step.action, step.id]);
+      if (!result.ok) return { status: "failed", detail: lastLine(result.stderr || result.stdout) };
+      // `claude plugin update` says "updated from 0.2.0 to 0.3.0" or "already at the latest version (0.4.0)".
+      return step.action === "update" ? { status: "done", detail: lastLine(result.stdout).replace(/^\W+/, "") } : { status: "done" };
     }
     case "skills": {
       const result = await run([
@@ -151,6 +179,15 @@ async function runStep(step: Step, interactive: boolean): Promise<Omit<Outcome, 
   }
 }
 
+// Shows work in progress: a spinner on a terminal. When output is piped (ssh, CI), one line when the work
+// ends instead, because clack's spinner prints every animation frame there.
+export function progress(label: string): { done: (message: string) => void; fail: (message: string) => void } {
+  if (!process.stdout.isTTY) return { done: (message) => p.log.success(message), fail: (message) => p.log.error(message) };
+  const spin = p.spinner();
+  spin.start(label);
+  return { done: (message) => spin.stop(message), fail: (message) => spin.error(message) };
+}
+
 // Steps that hand the terminal to a child process can't sit under a spinner.
 const usesTerminal = (step: Step): boolean => step.kind === "uv" || step.kind === "login";
 
@@ -158,17 +195,15 @@ export async function execute(steps: Step[], { interactive }: { interactive: boo
   const outcomes: Outcome[] = [];
   for (const step of steps) {
     const label = describe(step);
-    if (usesTerminal(step)) {
-      p.log.step(label);
-      outcomes.push({ step, ...(await runStep(step, interactive)) });
-      continue;
-    }
-    const spin = p.spinner();
-    spin.start(label);
+    const terminal = usesTerminal(step);
+    const shown = terminal ? undefined : progress(label);
+    if (terminal) p.log.step(label);
     const outcome = await runStep(step, interactive);
     const message = outcome.detail ? `${label} — ${outcome.detail}` : label;
-    if (outcome.status === "failed") spin.error(message);
-    else spin.stop(message);
+    if (shown && outcome.status === "failed") shown.fail(message);
+    else if (shown) shown.done(message);
+    else if (outcome.status === "failed") p.log.error(message);
+    else if (outcome.detail) p.log.info(outcome.detail);
     outcomes.push({ step, ...outcome });
   }
   return outcomes;

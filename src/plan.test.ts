@@ -1,6 +1,13 @@
 import { describe as group, expect, test } from "bun:test";
-import { type Machine, planSteps, type Step } from "./plan.ts";
+import { installedPacks, type Machine, planSteps, type Step } from "./plan.ts";
 import type { Pack, Tool } from "./source.ts";
+
+const tvly = {
+  package: "tavily-cli",
+  command: "tvly",
+  auth: ["tvly", "auth", "--json"],
+  login: ["tvly", "login"],
+} satisfies Tool;
 
 const pack: Pack = {
   name: "web-tool-routing",
@@ -12,9 +19,7 @@ const pack: Pack = {
   dependencyMarketplaces: ["claude-plugins-official", "parallel-agent-skills"],
   manifest: {
     uv: true,
-    uvTools: [
-      { package: "tavily-cli", command: "tvly", auth: ["tvly", "auth", "--json"], login: ["tvly", "login"] },
-    ],
+    uvTools: [tvly],
     npmTools: [],
     mcpServers: { "parallel-search": "https://search.parallel.ai/mcp" },
     claudeMarketplaces: { "parallel-agent-skills": "parallel-web/parallel-agent-skills" },
@@ -26,6 +31,7 @@ const machine = (has: string[], overrides: Partial<Machine> = {}): Machine => ({
   has: (command) => has.includes(command),
   claudeMarketplaces: new Set(["claude-plugins-official"]),
   claudePlugins: new Set(),
+  agentSkills: new Set(),
   mcpServers: new Map(),
   ...overrides,
 });
@@ -36,10 +42,32 @@ group("planSteps", () => {
   test("Claude only: plugin route, no skills or MCP steps", () => {
     const steps = planSteps({ packs: [pack], agents: ["claude-code"], copy: false }, machine(["uv", "tvly"]));
     expect(steps).toEqual([
-      { kind: "claude-marketplace", name: "cc-plugins", repo: "seanGSISG/cc-plugins" },
-      { kind: "claude-marketplace", name: "parallel-agent-skills", repo: "parallel-web/parallel-agent-skills" },
-      { kind: "claude-plugin", id: "web-tool-routing@cc-plugins" },
-      { kind: "login", command: "tvly", auth: ["tvly", "auth", "--json"], login: ["tvly", "login"] },
+      { kind: "tool", action: "upgrade", manager: "uv", tool: tvly },
+      { kind: "claude-marketplace", action: "add", name: "cc-plugins", repo: "seanGSISG/cc-plugins" },
+      {
+        kind: "claude-marketplace",
+        action: "add",
+        name: "parallel-agent-skills",
+        repo: "parallel-web/parallel-agent-skills",
+      },
+      { kind: "claude-plugin", action: "install", id: "web-tool-routing@cc-plugins" },
+      { kind: "login", command: "tvly", auth: tvly.auth, login: tvly.login },
+    ]);
+  });
+
+  test("re-running updates what is installed: marketplaces refresh, plugin updates, CLIs upgrade", () => {
+    const steps = planSteps(
+      { packs: [pack], agents: ["claude-code"], copy: false },
+      machine(["uv", "tvly"], {
+        claudeMarketplaces: new Set(["cc-plugins", "parallel-agent-skills"]),
+        claudePlugins: new Set(["web-tool-routing@cc-plugins"]),
+      }),
+    );
+    expect(steps.flatMap((step) => ("action" in step ? [`${step.kind}:${step.action}`] : []))).toEqual([
+      "tool:upgrade",
+      "claude-marketplace:update",
+      "claude-marketplace:update",
+      "claude-plugin:update",
     ]);
   });
 
@@ -51,8 +79,14 @@ group("planSteps", () => {
         claudePlugins: new Set(["web-tool-routing@cc-plugins"]),
       }),
     );
-    expect(kinds(steps)).toEqual(["skills", "skills", "mcp", "mcp", "login"]);
-    expect(steps[0]).toEqual({
+    expect(kinds(steps).filter((kind) => kind !== "tool" && !kind.startsWith("claude-"))).toEqual([
+      "skills",
+      "skills",
+      "mcp",
+      "mcp",
+      "login",
+    ]);
+    expect(steps.find((step) => step.kind === "skills")).toEqual({
       kind: "skills",
       source: "https://github.com/seanGSISG/cc-plugins/tree/main/plugins/web-tool-routing",
       skills: ["web-tool-routing", "tavily-crawl"],
@@ -77,7 +111,7 @@ group("planSteps", () => {
     } satisfies Tool;
     const npmPack: Pack = { ...pack, manifest: { ...pack.manifest, uv: false, uvTools: [], npmTools: [octen] } };
     const steps = planSteps({ packs: [npmPack], agents: ["claude-code"], copy: false }, machine([]));
-    expect(steps[0]).toEqual({ kind: "tool", manager: "npm", tool: octen });
+    expect(steps[0]).toEqual({ kind: "tool", action: "install", manager: "npm", tool: octen });
     expect(kinds(steps)).not.toContain("uv");
     expect(steps.at(-1)).toEqual({ kind: "login", command: "octen", auth: octen.auth, login: octen.login, apiKey: octen.apiKey });
   });
@@ -103,5 +137,17 @@ group("planSteps", () => {
       name: "parallel-search",
       url: "https://search.parallel.ai/mcp",
     });
+  });
+});
+
+group("installedPacks", () => {
+  const stash: Pack = { ...pack, name: "stash", skills: ["stash"] };
+
+  test("a pack counts as installed through its Claude plugin or any of its skills", () => {
+    const viaClaude = machine([], { claudePlugins: new Set(["web-tool-routing@cc-plugins"]) });
+    const viaSkill = machine([], { agentSkills: new Set(["stash", "unrelated"]) });
+    expect(installedPacks([pack, stash], viaClaude).map((p) => p.name)).toEqual(["web-tool-routing"]);
+    expect(installedPacks([pack, stash], viaSkill).map((p) => p.name)).toEqual(["stash"]);
+    expect(installedPacks([pack, stash], machine([]))).toEqual([]);
   });
 });

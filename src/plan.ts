@@ -6,9 +6,9 @@ export type ToolManager = "uv" | "npm";
 
 export type Step =
   | { kind: "uv" }
-  | { kind: "tool"; manager: ToolManager; tool: Tool }
-  | { kind: "claude-marketplace"; name: string; repo: string }
-  | { kind: "claude-plugin"; id: string }
+  | { kind: "tool"; action: "install" | "upgrade"; manager: ToolManager; tool: Tool }
+  | { kind: "claude-marketplace"; action: "add" | "update"; name: string; repo: string }
+  | { kind: "claude-plugin"; action: "install" | "update"; id: string }
   | { kind: "skills"; source: string; skills: string[]; agents: AgentId[]; copy: boolean }
   | { kind: "mcp"; agent: AgentType; name: string; url: string }
   | { kind: "mcp-manual"; agent: AgentId; name: string; url: string }
@@ -19,6 +19,8 @@ export interface Machine {
   has: (command: string) => boolean;
   claudeMarketplaces: ReadonlySet<string>;
   claudePlugins: ReadonlySet<string>;
+  // Skill folder names in ~/.agents/skills, where `npx skills` installs for non-Claude agents.
+  agentSkills: ReadonlySet<string>;
   // MCP server names already in each add-mcp agent's global config; those are never rewritten.
   mcpServers: ReadonlyMap<AgentType, ReadonlySet<string>>;
 }
@@ -34,7 +36,16 @@ const uniqueBy = <T>(items: T[], key: (item: T) => string): T[] => [
   ...new Map(items.map((item) => [key(item), item])).values(),
 ];
 
-// Turns the wizard's choices into the ordered work still missing on this machine.
+// Packs already on this machine: the Claude plugin is installed, or any of its skills is in ~/.agents/skills.
+export const installedPacks = (packs: Pack[], machine: Machine): Pack[] =>
+  packs.filter(
+    (pack) =>
+      machine.claudePlugins.has(`${pack.name}@${pack.marketplace}`) ||
+      pack.skills.some((skill) => machine.agentSkills.has(skill)),
+  );
+
+// Turns the wizard's choices into ordered steps: installs what is missing and brings what is already
+// there up to date, so re-running is how a machine gets updates.
 export function planSteps({ packs, agents, copy }: Choices, machine: Machine): Step[] {
   const steps: Step[] = [];
   const claude = agents.includes("claude-code");
@@ -49,7 +60,7 @@ export function planSteps({ packs, agents, copy }: Choices, machine: Machine): S
   const needsUv = packs.some((pack) => pack.manifest.uv) || tools.some(({ manager }) => manager === "uv");
   if (needsUv && !machine.has("uv")) steps.push({ kind: "uv" });
   for (const { manager, tool } of tools) {
-    if (!machine.has(tool.command)) steps.push({ kind: "tool", manager, tool });
+    steps.push({ kind: "tool", action: machine.has(tool.command) ? "upgrade" : "install", manager, tool });
   }
 
   if (claude) {
@@ -64,11 +75,12 @@ export function planSteps({ packs, agents, copy }: Choices, machine: Machine): S
       (market) => market.name,
     );
     for (const market of marketplaces) {
-      if (!machine.claudeMarketplaces.has(market.name)) steps.push({ kind: "claude-marketplace", ...market });
+      const action = machine.claudeMarketplaces.has(market.name) ? "update" : "add";
+      steps.push({ kind: "claude-marketplace", action, ...market });
     }
     for (const pack of packs) {
       const id = `${pack.name}@${pack.marketplace}`;
-      if (!machine.claudePlugins.has(id)) steps.push({ kind: "claude-plugin", id });
+      steps.push({ kind: "claude-plugin", action: machine.claudePlugins.has(id) ? "update" : "install", id });
     }
   }
 
@@ -115,13 +127,18 @@ export function describe(step: Step): string {
     case "uv":
       return "Install uv";
     case "tool": {
-      const install = step.manager === "uv" ? "uv tool install" : "npm install -g";
-      return `Install ${step.tool.command} (${install} ${step.tool.package})`;
+      const { action, manager, tool } = step;
+      if (manager === "uv") return `${action === "install" ? "Install" : "Upgrade"} ${tool.command} (uv tool ${action} ${tool.package})`;
+      return action === "install"
+        ? `Install ${tool.command} (npm install -g ${tool.package})`
+        : `Upgrade ${tool.command} (npm install -g ${tool.package}@latest)`;
     }
     case "claude-marketplace":
-      return `Add Claude marketplace ${step.name} (${step.repo})`;
+      return step.action === "add"
+        ? `Add Claude marketplace ${step.name} (${step.repo})`
+        : `Refresh Claude marketplace ${step.name}`;
     case "claude-plugin":
-      return `Install Claude plugin ${step.id}`;
+      return `${step.action === "install" ? "Install" : "Update"} Claude plugin ${step.id}`;
     case "skills": {
       const mode = step.copy ? "copy" : "symlink";
       return `Install ${step.skills.length} skills from ${step.source} → ${step.agents.join(", ")} (${mode})`;

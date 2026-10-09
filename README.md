@@ -11,21 +11,21 @@ Needs Node, and `git` (or `gh`) signed in to GitHub, since the packs repo is pri
 npx --allow-git=root github:seanGSISG/skillpack                       # pick packs from seanGSISG/cc-plugins
 npx --allow-git=root github:seanGSISG/skillpack add web-tool-routing  # one pack
 npx --allow-git=root github:seanGSISG/skillpack add owner/repo/pack   # a pack from another marketplace repo
+npx --allow-git=root -y github:seanGSISG/skillpack update --yes       # bring every installed pack up to date
 ```
 
 `--allow-git=root` lets npm fetch skillpack itself from GitHub; npm 12 refuses git packages by default (`EALLOWGIT`).
 
 The wizard asks which agents to install for and whether to symlink or copy, shows the plan, then installs uv and
 the pack's CLIs, the Claude plugin, the skills and MCP servers for the other agents, and finally signs in each
-CLI that isn't: browser sign-in (OAuth) first, or a pasted API key where the CLI takes one.
+CLI that isn't: browser sign-in (OAuth) first, or a pasted API key where the CLI takes one (offered first over SSH).
+Anything already installed is brought up to date instead: CLIs upgrade, marketplaces refresh, Claude plugins update.
 
 - `--agent <id>` (repeatable): `claude-code`, `codex`, `pi`, `cursor`, `opencode`, `gemini-cli`, `github-copilot`,
   `windsurf`, `goose`, `amp` (skills only).
 - `--yes`: no prompts, detected agents, sign-ins left to you. `--copy`: copy skills instead of symlinking.
   `--dry-run`: print the plan only.
 
-Re-running is safe: finished steps are skipped. Updates: `claude plugin update <pack>@cc-plugins` (Claude Code),
-`npx skills update -g` (other agents).
 
 ## Packs and skills
 
@@ -73,6 +73,10 @@ A pack is a plugin in a Claude marketplace repo with a `skillpack.json` beside `
 - `mcpServers`, `skillSources`: for non-Claude agents; Claude Code gets both through the plugin's `dependencies`.
 - `claudeMarketplaces`: repos for the marketplaces those `dependencies` live in.
 
+Unknown keys are errors. `skillpack validate [dir] [--since <ref>]` checks a marketplace checkout: every
+`skillpack.json`, skill names (unique, matching their folder, with a description), and, with `--since`, a version
+bump in every plugin changed since `<ref>`. cc-plugins runs it in CI and in its pre-push hook.
+
 ## Development
 
 ```sh
@@ -81,6 +85,7 @@ bun run bundle   # writes dist/cli.mjs; commit it, since npx github: runs dist d
 node dist/cli.mjs add web-tool-routing --dry-run
 ```
 
+CI (`.github/workflows/ci.yml`) runs the same commands and fails when the committed `dist/cli.mjs` is stale.
 `src/plan.ts` turns choices + manifest + machine state into steps; `src/run.ts` runs them. Keep `build`, `prepare`,
 `prepack` and install hooks out of `package.json`: they make `npx github:` run an inner `npm install` that fails
 silently on npm ≥ 11.17 when `allow-scripts` is set ([npm/cli#9783](https://github.com/npm/cli/issues/9783)).

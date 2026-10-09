@@ -3,23 +3,33 @@ import * as p from "@clack/prompts";
 import { rmSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { AGENT_IDS, AGENTS, type AgentId, detectAgents, isAgentId } from "./agents.ts";
-import { describe, planSteps } from "./plan.ts";
-import { execute, probeMachine } from "./run.ts";
+import { describe, installedPacks, type Machine, planSteps } from "./plan.ts";
+import { execute, probeMachine, progress } from "./run.ts";
 import { cloneRepo, DEFAULT_REPO, loadPacks, type Pack, parseSpec, UsageError } from "./source.ts";
+import { validateMarketplace } from "./validate.ts";
 
 const HELP = `skillpack — install skill packs (skills, CLIs, MCP servers, Claude plugin) into coding agents
 
 Usage:
   skillpack [add] [<pack> | <owner>/<repo> | <owner>/<repo>/<pack>]
-
-  With no pack, lists the packs in ${DEFAULT_REPO} (or the given repo) to choose from.
+      Install packs, or bring them up to date when already installed. With no pack, lists the packs in
+      ${DEFAULT_REPO} (or the given repo) to choose from.
+  skillpack update [<pack> | <owner>/<repo>]
+      Bring every pack installed on this machine up to date (or just the named one).
+  skillpack validate [<dir>] [--since <ref>]
+      Check a local marketplace checkout: manifests, skill names, and (with --since) version bumps.
 
 Options:
   -a, --agent <id>   Install for this agent (repeatable): ${AGENT_IDS.join(", ")}
   -y, --yes          No prompts: detected agents, symlinks, everything; logins are left to you
       --copy         Copy skills into each agent instead of symlinking to ~/.agents/skills
       --dry-run      Print the steps without running them
+      --since <ref>  validate: require a version bump in every plugin changed since <ref>
   -h, --help         Show this help`;
+
+const COMMANDS = ["add", "update", "validate"] as const;
+type Command = (typeof COMMANDS)[number];
+const isCommand = (word: string | undefined): word is Command => COMMANDS.some((command) => command === word);
 
 function unwrap<T>(value: T | typeof p.CANCEL_SYMBOL): T {
   if (p.isCancel(value)) {
@@ -87,6 +97,15 @@ async function chooseCopy(agents: AgentId[], flag: boolean | undefined, yes: boo
   return mode === "copy";
 }
 
+// Prints every problem and exits non-zero on any, so CI and git hooks can gate on it.
+function validate(dir: string, since: string | undefined): number {
+  const { problems, plugins, skills } = validateMarketplace(dir, since);
+  for (const problem of problems) console.error(`✗ ${problem}`);
+  if (problems.length) return 1;
+  console.log(`✓ ${plugins} plugins, ${skills} skills${since ? `, versions bumped since ${since.slice(0, 7)}` : ""}`);
+  return 0;
+}
+
 async function main(): Promise<number> {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
@@ -95,6 +114,7 @@ async function main(): Promise<number> {
       yes: { type: "boolean", short: "y", default: false },
       copy: { type: "boolean" },
       "dry-run": { type: "boolean", default: false },
+      since: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -102,20 +122,22 @@ async function main(): Promise<number> {
     console.log(HELP);
     return 0;
   }
-  const args = positionals[0] === "add" ? positionals.slice(1) : positionals;
+  const [first, ...rest] = positionals;
+  const command: Command = isCommand(first) ? first : "add";
+  const args = isCommand(first) ? rest : positionals;
   if (args.length > 1) throw new UsageError(`Unexpected arguments: ${args.slice(1).join(" ")}`);
+  if (command === "validate") return validate(args[0] ?? ".", values.since);
   const spec = parseSpec(args[0]);
   const yes = values.yes;
 
   p.intro("skillpack");
 
-  const fetching = p.spinner();
-  fetching.start(`Fetching ${spec.repo}`);
+  const fetching = progress(`Fetching ${spec.repo}`);
   let checkout: { dir: string; ref: string };
   try {
     checkout = cloneRepo(spec.repo);
   } catch {
-    fetching.error(`Could not clone ${spec.repo}; check that git can reach it (private repos need git or gh auth).`);
+    fetching.fail(`Could not clone ${spec.repo}; check that git can reach it (private repos need git or gh auth).`);
     return 1;
   }
   let packs: Pack[];
@@ -124,13 +146,29 @@ async function main(): Promise<number> {
   } finally {
     rmSync(checkout.dir, { recursive: true, force: true });
   }
-  fetching.stop(`Fetched ${spec.repo}`);
+  fetching.done(`Fetched ${spec.repo}`);
 
-  const chosen = await choosePacks(packs, spec.pack, yes);
-  const agents = await chooseAgents(values.agent, yes);
+  // `update` with no pack works on what this machine already has, so it reads the machine before choosing.
+  let chosen: Pack[];
+  let agents: AgentId[];
+  let machine: Machine;
+  if (command === "update" && !spec.pack) {
+    agents = await chooseAgents(values.agent, yes);
+    machine = await probeMachine(agents);
+    chosen = installedPacks(packs, machine);
+    if (chosen.length === 0) {
+      p.outro(`No packs from ${spec.repo} are installed here.`);
+      return 0;
+    }
+    p.log.info(`Updating ${chosen.map((pack) => pack.name).join(", ")}`);
+  } else {
+    chosen = await choosePacks(packs, spec.pack, yes);
+    agents = await chooseAgents(values.agent, yes);
+    machine = await probeMachine(agents);
+  }
   const copy = await chooseCopy(agents, values.copy, yes);
 
-  const steps = planSteps({ packs: chosen, agents, copy }, await probeMachine(agents));
+  const steps = planSteps({ packs: chosen, agents, copy }, machine);
   if (steps.length === 0) {
     p.outro("Everything is already installed.");
     return 0;

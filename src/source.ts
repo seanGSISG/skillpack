@@ -12,17 +12,18 @@ export class UsageError extends Error {}
 // A CLI the pack's skills call. `auth` reports sign-in status: a JSON `authenticated` field when it prints
 // one, otherwise its exit code. `login` signs in through the browser (OAuth). `apiKey` is the fallback:
 // its `login` argv gets the pasted key appended (`octen login --api-key <key>`); `url` is where to make one.
-const Tool = z.object({
+const Tool = z.strictObject({
   package: z.string(),
   command: z.string(),
   auth: z.array(z.string()).nonempty().optional(),
   login: z.array(z.string()).nonempty().optional(),
-  apiKey: z.object({ login: z.array(z.string()).nonempty(), url: z.url().optional() }).optional(),
+  apiKey: z.strictObject({ login: z.array(z.string()).nonempty(), url: z.url().optional() }).optional(),
 });
 export type Tool = z.infer<typeof Tool>;
 
 // `skillpack.json`, next to a plugin's `.claude-plugin/plugin.json`: what the pack needs beyond its skills.
-const Manifest = z.object({
+// Strict: an unknown key (a typo, or a field this skillpack predates) is an error, not silently dropped.
+export const Manifest = z.strictObject({
   uv: z.boolean().default(false),
   // Installed with `uv tool install`.
   uvTools: z.array(Tool).default([]),
@@ -33,18 +34,21 @@ const Manifest = z.object({
   // Marketplace name -> GitHub repo, for marketplaces the plugin's dependencies live in.
   claudeMarketplaces: z.record(z.string(), z.string()).default({}),
   // Skills from other repos that non-Claude agents need (Claude Code gets them as plugin dependencies).
-  skillSources: z.array(z.object({ source: z.string(), skills: z.array(z.string()).nonempty() })).default([]),
+  skillSources: z
+    .array(z.strictObject({ source: z.string(), skills: z.array(z.string()).nonempty() }))
+    .default([]),
 });
 export type Manifest = z.infer<typeof Manifest>;
 
-const PluginJson = z.object({
+export const PluginJson = z.object({
   name: z.string(),
+  version: z.string().optional(),
   dependencies: z
     .array(z.union([z.string(), z.object({ name: z.string(), marketplace: z.string().optional() })]))
     .default([]),
 });
 
-const MarketplaceJson = z.object({
+export const MarketplaceJson = z.object({
   name: z.string(),
   plugins: z.array(z.object({ name: z.string(), source: z.unknown() })),
 });
@@ -89,22 +93,34 @@ export function cloneRepo(repo: string): { dir: string; ref: string } {
   return { dir, ref };
 }
 
-const readJson = (path: string): unknown => JSON.parse(readFileSync(path, "utf8"));
+export const readJson = (path: string): unknown => JSON.parse(readFileSync(path, "utf8"));
+
+// Marketplace entries with a local source, as paths relative to the repo root (`plugins/stash`).
+export const localPluginPaths = (marketplace: z.infer<typeof MarketplaceJson>): string[] =>
+  marketplace.plugins.flatMap((entry) =>
+    typeof entry.source === "string" ? [entry.source.replace(/^\.\//, "")] : [],
+  );
+
+// Skill folder names under a plugin: every `skills/<name>/` holding a SKILL.md.
+export function listSkills(pluginRoot: string): string[] {
+  const skillsDir = join(pluginRoot, "skills");
+  return existsSync(skillsDir)
+    ? readdirSync(skillsDir).filter((name) => existsSync(join(skillsDir, name, "SKILL.md")))
+    : [];
+}
 
 // Every plugin in the repo's marketplace that ships a `skillpack.json`.
 export function loadPacks(dir: string, repo: string, ref: string): Pack[] {
   const marketplace = MarketplaceJson.parse(readJson(join(dir, ".claude-plugin/marketplace.json")));
-  return marketplace.plugins.flatMap((entry): Pack[] => {
-    if (typeof entry.source !== "string") return [];
-    const path = entry.source.replace(/^\.\//, "");
+  return localPluginPaths(marketplace).flatMap((path): Pack[] => {
     const root = join(dir, path);
     if (!existsSync(join(root, "skillpack.json"))) return [];
 
     const plugin = PluginJson.parse(readJson(join(root, ".claude-plugin/plugin.json")));
-    const skillsDir = join(root, "skills");
-    const skills = existsSync(skillsDir)
-      ? readdirSync(skillsDir).filter((name) => existsSync(join(skillsDir, name, "SKILL.md")))
-      : [];
+    const manifest = Manifest.safeParse(readJson(join(root, "skillpack.json")));
+    if (!manifest.success) {
+      throw new UsageError(`${repo}: ${path}/skillpack.json is invalid:\n${z.prettifyError(manifest.error)}`);
+    }
     const dependencyMarketplaces = plugin.dependencies.flatMap((dep) => {
       const market = typeof dep === "string" ? dep.split("@")[1] : dep.marketplace;
       return market ? [market] : [];
@@ -117,9 +133,9 @@ export function loadPacks(dir: string, repo: string, ref: string): Pack[] {
         repo,
         ref,
         path,
-        skills,
+        skills: listSkills(root),
         dependencyMarketplaces: [...new Set(dependencyMarketplaces)],
-        manifest: Manifest.parse(readJson(join(root, "skillpack.json"))),
+        manifest: manifest.data,
       },
     ];
   });

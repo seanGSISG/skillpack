@@ -85,6 +85,7 @@ async function detectAgents() {
 var uniqueBy = (items, key) => [
   ...new Map(items.map((item) => [key(item), item])).values()
 ];
+var installedPacks = (packs, machine) => packs.filter((pack) => machine.claudePlugins.has(`${pack.name}@${pack.marketplace}`) || pack.skills.some((skill) => machine.agentSkills.has(skill)));
 function planSteps({ packs, agents, copy }, machine) {
   const steps = [];
   const claude = agents.includes("claude-code");
@@ -95,8 +96,7 @@ function planSteps({ packs, agents, copy }, machine) {
   if (needsUv && !machine.has("uv"))
     steps.push({ kind: "uv" });
   for (const { manager, tool } of tools) {
-    if (!machine.has(tool.command))
-      steps.push({ kind: "tool", manager, tool });
+    steps.push({ kind: "tool", action: machine.has(tool.command) ? "upgrade" : "install", manager, tool });
   }
   if (claude) {
     const marketplaces = uniqueBy(packs.flatMap((pack) => [
@@ -107,13 +107,12 @@ function planSteps({ packs, agents, copy }, machine) {
       })
     ]), (market) => market.name);
     for (const market of marketplaces) {
-      if (!machine.claudeMarketplaces.has(market.name))
-        steps.push({ kind: "claude-marketplace", ...market });
+      const action = machine.claudeMarketplaces.has(market.name) ? "update" : "add";
+      steps.push({ kind: "claude-marketplace", action, ...market });
     }
     for (const pack of packs) {
       const id = `${pack.name}@${pack.marketplace}`;
-      if (!machine.claudePlugins.has(id))
-        steps.push({ kind: "claude-plugin", id });
+      steps.push({ kind: "claude-plugin", action: machine.claudePlugins.has(id) ? "update" : "install", id });
     }
   }
   if (others.length > 0) {
@@ -153,13 +152,15 @@ function describe(step) {
     case "uv":
       return "Install uv";
     case "tool": {
-      const install = step.manager === "uv" ? "uv tool install" : "npm install -g";
-      return `Install ${step.tool.command} (${install} ${step.tool.package})`;
+      const { action, manager, tool } = step;
+      if (manager === "uv")
+        return `${action === "install" ? "Install" : "Upgrade"} ${tool.command} (uv tool ${action} ${tool.package})`;
+      return action === "install" ? `Install ${tool.command} (npm install -g ${tool.package})` : `Upgrade ${tool.command} (npm install -g ${tool.package}@latest)`;
     }
     case "claude-marketplace":
-      return `Add Claude marketplace ${step.name} (${step.repo})`;
+      return step.action === "add" ? `Add Claude marketplace ${step.name} (${step.repo})` : `Refresh Claude marketplace ${step.name}`;
     case "claude-plugin":
-      return `Install Claude plugin ${step.id}`;
+      return `${step.action === "install" ? "Install" : "Update"} Claude plugin ${step.id}`;
     case "skills": {
       const mode = step.copy ? "copy" : "symlink";
       return `Install ${step.skills.length} skills from ${step.source} → ${step.agents.join(", ")} (${mode})`;
@@ -176,7 +177,9 @@ function describe(step) {
 // src/run.ts
 import * as p from "@clack/prompts";
 import { agents as mcpAgents2, listInstalledServers, upsertServer } from "add-mcp";
-import { copyFileSync, existsSync } from "node:fs";
+import { copyFileSync, existsSync, readdirSync } from "node:fs";
+import { homedir as homedir2 } from "node:os";
+import { join as join2 } from "node:path";
 var SKILLS_CLI = "skills@1";
 var lastLine = (text) => text.trim().split(`
 `).at(-1) ?? "";
@@ -195,7 +198,9 @@ async function probeMachine(agents) {
     mcpAgentIds.length ? listInstalledServers({ global: true, agents: mcpAgentIds }) : []
   ]);
   const mcpServers = new Map(installed.map((agent) => [agent.agentType, new Set(agent.servers.map((server) => server.serverName))]));
-  return { has: (command) => which(command) !== undefined, claudeMarketplaces, claudePlugins, mcpServers };
+  const skillsDir = join2(homedir2(), ".agents", "skills");
+  const agentSkills = new Set(existsSync(skillsDir) ? readdirSync(skillsDir) : []);
+  return { has: (command) => which(command) !== undefined, claudeMarketplaces, claudePlugins, agentSkills, mcpServers };
 }
 async function isSignedIn(auth) {
   const result = await run(auth);
@@ -207,6 +212,14 @@ async function isSignedIn(auth) {
   } catch {}
   return result.ok;
 }
+function signInOptions(step, overSsh) {
+  const browser = { value: "browser", label: `Browser sign-in (${step.login.join(" ")})` };
+  const later = { value: "later", label: "Later" };
+  if (!step.apiKey)
+    return [{ ...browser, hint: "recommended" }, later];
+  const key = { value: "key", label: "Paste an API key" };
+  return overSsh ? [{ ...key, hint: "recommended over SSH" }, browser, later] : [{ ...browser, hint: "recommended" }, key, later];
+}
 async function signIn(step, interactive) {
   if (await isSignedIn(step.auth))
     return { status: "skipped", detail: "already signed in" };
@@ -214,13 +227,10 @@ async function signIn(step, interactive) {
   const later = step.apiKey ? `${browser} (or ${step.apiKey.login.join(" ")} <key>)` : browser;
   if (!interactive)
     return { status: "manual", detail: `run: ${later}` };
+  const overSsh = Boolean(process.env.SSH_CONNECTION || process.env.SSH_TTY);
   const method = await p.select({
     message: `${step.command} is not signed in. Sign in now?`,
-    options: [
-      { value: "browser", label: `Browser sign-in (${browser})`, hint: "recommended" },
-      ...step.apiKey ? [{ value: "key", label: "Paste an API key" }] : [],
-      { value: "later", label: "Later" }
-    ]
+    options: signInOptions(step, overSsh)
   });
   if (p.isCancel(method) || method === "later")
     return { status: "manual", detail: `run later: ${later}` };
@@ -253,11 +263,17 @@ async function runStep(step, interactive) {
       return which("uv") ? { status: "done" } : { status: "failed", detail: "uv not found after install" };
     }
     case "tool": {
-      const { manager, tool } = step;
+      const { action, manager, tool } = step;
       const uv = manager === "uv";
-      const result = await run(uv ? ["uv", "tool", "install", tool.package] : ["npm", "install", "-g", tool.package]);
-      if (!result.ok)
+      const result = await run(uv ? ["uv", "tool", action, tool.package] : ["npm", "install", "-g", action === "upgrade" ? `${tool.package}@latest` : tool.package]);
+      if (!result.ok) {
+        if (uv && action === "upgrade" && result.stderr.includes("is not installed")) {
+          return { status: "skipped", detail: "not installed with uv; left as is" };
+        }
         return { status: "failed", detail: lastLine(result.stderr) };
+      }
+      if (action === "upgrade")
+        return { status: "done" };
       prependPath(uv ? (await run(["uv", "tool", "dir", "--bin"])).stdout.trim() : npmGlobalBin((await run(["npm", "prefix", "-g"])).stdout.trim()));
       if (which(tool.command))
         return { status: "done" };
@@ -265,12 +281,15 @@ async function runStep(step, interactive) {
       return { status: "failed", detail: `installed, but not on PATH; ${fix}` };
     }
     case "claude-marketplace": {
-      const result = await run(["claude", "plugin", "marketplace", "add", step.repo]);
+      const target = step.action === "add" ? step.repo : step.name;
+      const result = await run(["claude", "plugin", "marketplace", step.action, target]);
       return result.ok ? { status: "done" } : { status: "failed", detail: lastLine(result.stderr) };
     }
     case "claude-plugin": {
-      const result = await run(["claude", "plugin", "install", step.id]);
-      return result.ok ? { status: "done" } : { status: "failed", detail: lastLine(result.stderr || result.stdout) };
+      const result = await run(["claude", "plugin", step.action, step.id]);
+      if (!result.ok)
+        return { status: "failed", detail: lastLine(result.stderr || result.stdout) };
+      return step.action === "update" ? { status: "done", detail: lastLine(result.stdout).replace(/^\W+/, "") } : { status: "done" };
     }
     case "skills": {
       const result = await run([
@@ -303,24 +322,32 @@ async function runStep(step, interactive) {
       return signIn(step, interactive);
   }
 }
+function progress(label) {
+  if (!process.stdout.isTTY)
+    return { done: (message) => p.log.success(message), fail: (message) => p.log.error(message) };
+  const spin = p.spinner();
+  spin.start(label);
+  return { done: (message) => spin.stop(message), fail: (message) => spin.error(message) };
+}
 var usesTerminal = (step) => step.kind === "uv" || step.kind === "login";
 async function execute(steps, { interactive }) {
   const outcomes = [];
   for (const step of steps) {
     const label = describe(step);
-    if (usesTerminal(step)) {
+    const terminal = usesTerminal(step);
+    const shown = terminal ? undefined : progress(label);
+    if (terminal)
       p.log.step(label);
-      outcomes.push({ step, ...await runStep(step, interactive) });
-      continue;
-    }
-    const spin = p.spinner();
-    spin.start(label);
     const outcome = await runStep(step, interactive);
     const message = outcome.detail ? `${label} — ${outcome.detail}` : label;
-    if (outcome.status === "failed")
-      spin.error(message);
-    else
-      spin.stop(message);
+    if (shown && outcome.status === "failed")
+      shown.fail(message);
+    else if (shown)
+      shown.done(message);
+    else if (outcome.status === "failed")
+      p.log.error(message);
+    else if (outcome.detail)
+      p.log.info(outcome.detail);
     outcomes.push({ step, ...outcome });
   }
   return outcomes;
@@ -328,31 +355,32 @@ async function execute(steps, { interactive }) {
 
 // src/source.ts
 import { execFileSync } from "node:child_process";
-import { existsSync as existsSync2, mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync as existsSync2, mkdtempSync, readdirSync as readdirSync2, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join as join2 } from "node:path";
+import { join as join3 } from "node:path";
 import { z } from "zod";
 var DEFAULT_REPO = "seanGSISG/cc-plugins";
 
 class UsageError extends Error {
 }
-var Tool = z.object({
+var Tool = z.strictObject({
   package: z.string(),
   command: z.string(),
   auth: z.array(z.string()).nonempty().optional(),
   login: z.array(z.string()).nonempty().optional(),
-  apiKey: z.object({ login: z.array(z.string()).nonempty(), url: z.url().optional() }).optional()
+  apiKey: z.strictObject({ login: z.array(z.string()).nonempty(), url: z.url().optional() }).optional()
 });
-var Manifest = z.object({
+var Manifest = z.strictObject({
   uv: z.boolean().default(false),
   uvTools: z.array(Tool).default([]),
   npmTools: z.array(Tool).default([]),
   mcpServers: z.record(z.string(), z.url()).default({}),
   claudeMarketplaces: z.record(z.string(), z.string()).default({}),
-  skillSources: z.array(z.object({ source: z.string(), skills: z.array(z.string()).nonempty() })).default([])
+  skillSources: z.array(z.strictObject({ source: z.string(), skills: z.array(z.string()).nonempty() })).default([])
 });
 var PluginJson = z.object({
   name: z.string(),
+  version: z.string().optional(),
   dependencies: z.array(z.union([z.string(), z.object({ name: z.string(), marketplace: z.string().optional() })])).default([])
 });
 var MarketplaceJson = z.object({
@@ -372,7 +400,7 @@ function parseSpec(spec) {
   return third === undefined ? { repo } : { repo, pack: third };
 }
 function cloneRepo(repo) {
-  const dir = mkdtempSync(join2(tmpdir(), "skillpack-"));
+  const dir = mkdtempSync(join3(tmpdir(), "skillpack-"));
   execFileSync("git", ["clone", "--quiet", "--depth", "1", `https://github.com/${repo}.git`, dir], {
     stdio: ["ignore", "ignore", "pipe"]
   });
@@ -380,18 +408,23 @@ function cloneRepo(repo) {
   return { dir, ref };
 }
 var readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
+var localPluginPaths = (marketplace) => marketplace.plugins.flatMap((entry) => typeof entry.source === "string" ? [entry.source.replace(/^\.\//, "")] : []);
+function listSkills(pluginRoot) {
+  const skillsDir = join3(pluginRoot, "skills");
+  return existsSync2(skillsDir) ? readdirSync2(skillsDir).filter((name) => existsSync2(join3(skillsDir, name, "SKILL.md"))) : [];
+}
 function loadPacks(dir, repo, ref) {
-  const marketplace = MarketplaceJson.parse(readJson(join2(dir, ".claude-plugin/marketplace.json")));
-  return marketplace.plugins.flatMap((entry) => {
-    if (typeof entry.source !== "string")
+  const marketplace = MarketplaceJson.parse(readJson(join3(dir, ".claude-plugin/marketplace.json")));
+  return localPluginPaths(marketplace).flatMap((path) => {
+    const root = join3(dir, path);
+    if (!existsSync2(join3(root, "skillpack.json")))
       return [];
-    const path = entry.source.replace(/^\.\//, "");
-    const root = join2(dir, path);
-    if (!existsSync2(join2(root, "skillpack.json")))
-      return [];
-    const plugin = PluginJson.parse(readJson(join2(root, ".claude-plugin/plugin.json")));
-    const skillsDir = join2(root, "skills");
-    const skills = existsSync2(skillsDir) ? readdirSync(skillsDir).filter((name) => existsSync2(join2(skillsDir, name, "SKILL.md"))) : [];
+    const plugin = PluginJson.parse(readJson(join3(root, ".claude-plugin/plugin.json")));
+    const manifest = Manifest.safeParse(readJson(join3(root, "skillpack.json")));
+    if (!manifest.success) {
+      throw new UsageError(`${repo}: ${path}/skillpack.json is invalid:
+${z.prettifyError(manifest.error)}`);
+    }
     const dependencyMarketplaces = plugin.dependencies.flatMap((dep) => {
       const market = typeof dep === "string" ? dep.split("@")[1] : dep.marketplace;
       return market ? [market] : [];
@@ -403,12 +436,88 @@ function loadPacks(dir, repo, ref) {
         repo,
         ref,
         path,
-        skills,
+        skills: listSkills(root),
         dependencyMarketplaces: [...new Set(dependencyMarketplaces)],
-        manifest: Manifest.parse(readJson(join2(root, "skillpack.json")))
+        manifest: manifest.data
       }
     ];
   });
+}
+
+// src/validate.ts
+import { execFileSync as execFileSync2 } from "node:child_process";
+import { existsSync as existsSync3, readFileSync as readFileSync2 } from "node:fs";
+import { join as join4 } from "node:path";
+import { z as z2 } from "zod";
+function frontmatter(markdown) {
+  const block = /^---\r?\n([\s\S]*?)\r?\n---/.exec(markdown)?.[1] ?? "";
+  return new Map(block.split(/\r?\n/).flatMap((line) => {
+    const [, key, value = ""] = /^([A-Za-z][\w-]*):\s*(.*)$/.exec(line) ?? [];
+    return key ? [[key, value.trim().replace(/^["']|["']$/g, "")]] : [];
+  }));
+}
+function isNewer(version, than) {
+  const a = version.split(".").map(Number);
+  const b = than.split(".").map(Number);
+  for (let i = 0;i < Math.max(a.length, b.length); i++) {
+    const diff = (a[i] ?? 0) - (b[i] ?? 0);
+    if (diff !== 0)
+      return diff > 0;
+  }
+  return false;
+}
+var git = (dir, args) => execFileSync2("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+function versionAt(dir, rev, path) {
+  try {
+    return PluginJson.parse(JSON.parse(git(dir, ["show", `${rev}:./${path}/.claude-plugin/plugin.json`]))).version;
+  } catch {
+    return;
+  }
+}
+function validateMarketplace(dir, since) {
+  const problems = [];
+  const marketplace = MarketplaceJson.safeParse(readJson(join4(dir, ".claude-plugin/marketplace.json")));
+  if (!marketplace.success) {
+    return { problems: [`.claude-plugin/marketplace.json: ${z2.prettifyError(marketplace.error)}`], plugins: 0, skills: 0 };
+  }
+  const paths = localPluginPaths(marketplace.data);
+  const owners = new Map;
+  for (const path of paths) {
+    const root = join4(dir, path);
+    if (existsSync3(join4(root, "skillpack.json"))) {
+      const manifest = Manifest.safeParse(readJson(join4(root, "skillpack.json")));
+      if (!manifest.success)
+        problems.push(`${path}/skillpack.json: ${z2.prettifyError(manifest.error)}`);
+    }
+    for (const skill of listSkills(root)) {
+      const meta = frontmatter(readFileSync2(join4(root, "skills", skill, "SKILL.md"), "utf8"));
+      const where = `${path}/skills/${skill}/SKILL.md`;
+      if (meta.get("name") !== skill)
+        problems.push(`${where}: frontmatter name must be "${skill}" (the folder name)`);
+      if (!meta.get("description"))
+        problems.push(`${where}: frontmatter needs a description`);
+      const owner = owners.get(skill);
+      if (owner)
+        problems.push(`${where}: skill name "${skill}" is also used by ${owner}; names are global`);
+      else
+        owners.set(skill, path);
+    }
+  }
+  if (since) {
+    const changed = git(dir, ["diff", "--name-only", "--relative", since, "HEAD"]).split(`
+`).filter(Boolean);
+    for (const path of paths) {
+      const touched = changed.some((file) => file.startsWith(`${path}/`) && file !== `${path}/README.md`);
+      const before = versionAt(dir, since, path);
+      if (!touched || before === undefined)
+        continue;
+      const after = versionAt(dir, "HEAD", path);
+      if (after === undefined || !isNewer(after, before)) {
+        problems.push(`${path}: changed since ${since.slice(0, 7)} but version is still ${after ?? "missing"}; bump it`);
+      }
+    }
+  }
+  return { problems, plugins: paths.length, skills: owners.size };
 }
 
 // src/cli.ts
@@ -416,15 +525,22 @@ var HELP = `skillpack — install skill packs (skills, CLIs, MCP servers, Claude
 
 Usage:
   skillpack [add] [<pack> | <owner>/<repo> | <owner>/<repo>/<pack>]
-
-  With no pack, lists the packs in ${DEFAULT_REPO} (or the given repo) to choose from.
+      Install packs, or bring them up to date when already installed. With no pack, lists the packs in
+      ${DEFAULT_REPO} (or the given repo) to choose from.
+  skillpack update [<pack> | <owner>/<repo>]
+      Bring every pack installed on this machine up to date (or just the named one).
+  skillpack validate [<dir>] [--since <ref>]
+      Check a local marketplace checkout: manifests, skill names, and (with --since) version bumps.
 
 Options:
   -a, --agent <id>   Install for this agent (repeatable): ${AGENT_IDS.join(", ")}
   -y, --yes          No prompts: detected agents, symlinks, everything; logins are left to you
       --copy         Copy skills into each agent instead of symlinking to ~/.agents/skills
       --dry-run      Print the steps without running them
+      --since <ref>  validate: require a version bump in every plugin changed since <ref>
   -h, --help         Show this help`;
+var COMMANDS = ["add", "update", "validate"];
+var isCommand = (word) => COMMANDS.some((command) => command === word);
 function unwrap(value) {
   if (p2.isCancel(value)) {
     p2.cancel("Cancelled.");
@@ -489,6 +605,15 @@ async function chooseCopy(agents, flag, yes) {
   }));
   return mode === "copy";
 }
+function validate(dir, since) {
+  const { problems, plugins, skills } = validateMarketplace(dir, since);
+  for (const problem of problems)
+    console.error(`✗ ${problem}`);
+  if (problems.length)
+    return 1;
+  console.log(`✓ ${plugins} plugins, ${skills} skills${since ? `, versions bumped since ${since.slice(0, 7)}` : ""}`);
+  return 0;
+}
 async function main() {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
@@ -497,6 +622,7 @@ async function main() {
       yes: { type: "boolean", short: "y", default: false },
       copy: { type: "boolean" },
       "dry-run": { type: "boolean", default: false },
+      since: { type: "string" },
       help: { type: "boolean", short: "h", default: false }
     }
   });
@@ -504,19 +630,22 @@ async function main() {
     console.log(HELP);
     return 0;
   }
-  const args = positionals[0] === "add" ? positionals.slice(1) : positionals;
+  const [first, ...rest] = positionals;
+  const command = isCommand(first) ? first : "add";
+  const args = isCommand(first) ? rest : positionals;
   if (args.length > 1)
     throw new UsageError(`Unexpected arguments: ${args.slice(1).join(" ")}`);
+  if (command === "validate")
+    return validate(args[0] ?? ".", values.since);
   const spec = parseSpec(args[0]);
   const yes = values.yes;
   p2.intro("skillpack");
-  const fetching = p2.spinner();
-  fetching.start(`Fetching ${spec.repo}`);
+  const fetching = progress(`Fetching ${spec.repo}`);
   let checkout;
   try {
     checkout = cloneRepo(spec.repo);
   } catch {
-    fetching.error(`Could not clone ${spec.repo}; check that git can reach it (private repos need git or gh auth).`);
+    fetching.fail(`Could not clone ${spec.repo}; check that git can reach it (private repos need git or gh auth).`);
     return 1;
   }
   let packs;
@@ -525,11 +654,26 @@ async function main() {
   } finally {
     rmSync(checkout.dir, { recursive: true, force: true });
   }
-  fetching.stop(`Fetched ${spec.repo}`);
-  const chosen = await choosePacks(packs, spec.pack, yes);
-  const agents = await chooseAgents(values.agent, yes);
+  fetching.done(`Fetched ${spec.repo}`);
+  let chosen;
+  let agents;
+  let machine;
+  if (command === "update" && !spec.pack) {
+    agents = await chooseAgents(values.agent, yes);
+    machine = await probeMachine(agents);
+    chosen = installedPacks(packs, machine);
+    if (chosen.length === 0) {
+      p2.outro(`No packs from ${spec.repo} are installed here.`);
+      return 0;
+    }
+    p2.log.info(`Updating ${chosen.map((pack) => pack.name).join(", ")}`);
+  } else {
+    chosen = await choosePacks(packs, spec.pack, yes);
+    agents = await chooseAgents(values.agent, yes);
+    machine = await probeMachine(agents);
+  }
   const copy = await chooseCopy(agents, values.copy, yes);
-  const steps = planSteps({ packs: chosen, agents, copy }, await probeMachine(agents));
+  const steps = planSteps({ packs: chosen, agents, copy }, machine);
   if (steps.length === 0) {
     p2.outro("Everything is already installed.");
     return 0;
