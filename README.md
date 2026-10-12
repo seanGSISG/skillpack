@@ -37,7 +37,7 @@ Anything already installed is brought up to date instead: CLIs upgrade, marketpl
 | herdr-ops | `herdr-ops` | Runs and drives terminal work and agents on spark, cachy and dh01 through Herdr |
 | go-best-practices | `go-best-practices` | Production Go: lifecycle, concurrency, config, testing, CI |
 | pack-author | `pack-author` | Builds, registers and releases packs for skillpack and cc-plugins |
-| stash | `stash` | Moves files between machines through a private R2 bucket; share links |
+| stash | `stash` | Moves and shares files through Zipline (i.lsdmt.me): links with expiry, view limits, passwords |
 | web-tool-routing | `web-tool-routing` | Picks Octen, Parallel or Tavily for each web task |
 | | `web-tool-setup` | Checks and installs the pack's CLIs and sign-ins |
 | | `octen-search` | Web and news search, multi-angle surveys (default search) |
