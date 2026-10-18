@@ -36,6 +36,7 @@ Anything already installed is brought up to date instead: CLIs upgrade, marketpl
 | | `fastapi-app-patterns` | Settings, lifespan, database sessions, Entra ID/JWT auth, tests |
 | herdr-ops | `herdr-ops` | Runs and drives terminal work and agents on spark, cachy and dh01 through Herdr |
 | go-best-practices | `go-best-practices` | Production Go: lifecycle, concurrency, config, testing, CI |
+| orca-pipeline | `orca-pipeline` | Runs plan → research → waves → parallel agents in Orca, each change reviewed by a different model |
 | pack-author | `pack-author` | Builds, registers and releases packs for skillpack and cc-plugins |
 | stash | `stash` | Moves and shares files through Zipline (i.lsdmt.me): links with expiry, view limits, passwords |
 | web-tool-routing | `web-tool-routing` | Picks Octen, Parallel or Tavily for each web task |
