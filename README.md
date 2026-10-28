@@ -35,6 +35,7 @@ Anything already installed is brought up to date instead: CLIs upgrade, marketpl
 | fastapi-best-practices | `fastapi` | The FastAPI team's own conventions (vendored official skill) |
 | | `fastapi-app-patterns` | Settings, lifespan, database sessions, Entra ID/JWT auth, tests |
 | herdr-ops | `herdr-ops` | Runs and drives terminal work and agents on spark, cachy and dh01 through Herdr |
+| jot | `jot` | Reads, edits, comments on and shares notes in Jot (jot.lsdmt.me); bundled v0.1.3 CLI, key from Bitwarden |
 | go-best-practices | `go-best-practices` | Production Go: lifecycle, concurrency, config, testing, CI |
 | orca-pipeline | `orca-pipeline` | Runs plan → research → waves → parallel agents in Orca, each change reviewed by a different model |
 | pack-author | `pack-author` | Builds, registers and releases packs for skillpack and cc-plugins |
