@@ -40,7 +40,7 @@ Anything already installed is brought up to date instead: CLIs upgrade, marketpl
 | go-best-practices | `go-best-practices` | Production Go: lifecycle, concurrency, config, testing, CI |
 | orca-pipeline | `orca-pipeline` | Runs plan → research → waves → parallel agents in Orca, each change reviewed by a different model |
 | pack-author | `pack-author` | Builds, registers and releases packs for skillpack and cc-plugins |
-| quick-review | `quick-review` | Quick independent diff review through PR-Agent and Jev Router (DeepSeek, Mercury or GPT-6.1 Sol by difficulty); bundled CLI runs with uv |
+| quick-review | `quick-review` | Quick independent diff review with Codex's built-in reviewer (`codex review`, GPT-6.1 Sol) on the ChatGPT sign-in; installs the Codex CLI |
 | stash | `stash` | Moves and shares files through Zipline (i.lsdmt.me): links with expiry, view limits, passwords |
 | web-tool-routing | `web-tool-routing` | Picks Octen, Parallel or Tavily for each web task |
 | | `web-tool-setup` | Checks and installs the pack's CLIs and sign-ins |
