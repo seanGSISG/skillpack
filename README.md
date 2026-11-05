@@ -33,6 +33,7 @@ Anything already installed is brought up to date instead: CLIs upgrade, marketpl
 |---|---|---|
 | babysit | `babysit` | Takes a PR from opened to merged: reviews, fixes, a scripted merge gate |
 | council | `council`, `sol-loop`, `council-setup` | Cross-provider code review in a bounded loop, with a findings ledger |
+| ship | `full-send`, `full-stop`, `file-pr`, `takeover`, `modernize`, `leaving-pr-comments` | Takes a change to a merged PR, on top of babysit and council |
 | fastapi-best-practices | `fastapi` | The FastAPI team's own conventions (vendored official skill) |
 | | `fastapi-app-patterns` | Settings, lifespan, database sessions, Entra ID/JWT auth, tests |
 | herdr-ops | `herdr-ops` | Runs and drives terminal work and agents on spark, cachy and dh01 through Herdr |
