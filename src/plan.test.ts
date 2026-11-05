@@ -39,6 +39,18 @@ const machine = (has: string[], overrides: Partial<Machine> = {}): Machine => ({
 const kinds = (steps: Step[]) => steps.map((step) => step.kind);
 
 group("planSteps", () => {
+  test("a pack's setup runs last, after sign-in, on every agent route", () => {
+    const setup: NonNullable<Pack["manifest"]["setup"]> = {
+      skill: "council",
+      run: ["scripts/peer.py", "setup"],
+      check: ["scripts/peer.py", "config", "--check"],
+    };
+    const configured: Pack = { ...pack, manifest: { ...pack.manifest, setup } };
+    const steps = planSteps({ packs: [configured], agents: ["claude-code"], copy: false }, machine(["uv", "tvly"]));
+    expect(steps.at(-1)).toEqual({ kind: "setup", id: "web-tool-routing@cc-plugins", ...setup });
+    expect(kinds(steps).at(-2)).toBe("login");
+  });
+
   test("Claude only: plugin route, no skills or MCP steps", () => {
     const steps = planSteps({ packs: [pack], agents: ["claude-code"], copy: false }, machine(["uv", "tvly"]));
     expect(steps).toEqual([

@@ -51,6 +51,13 @@ test("an unknown skillpack.json key is an error, not silently dropped", () => {
   expect(problem).toContain("apikey");
 });
 
+test("a setup script must exist in its skill folder", () => {
+  plugin("alpha", "0.1.0", { setup: { skill: "alpha-one", run: ["scripts/setup.py"] } });
+  expect(validateMarketplace(dir).problems[0]).toContain("setup script skills/alpha-one/scripts/setup.py is missing");
+  write("plugins/alpha/skills/alpha-one/scripts/setup.py", "");
+  expect(validateMarketplace(dir).problems).toEqual([]);
+});
+
 test("skill names are global, match their folder, and carry a description", () => {
   skill("beta", "alpha-one");
   skill("beta", "renamed", "name: something-else\ndescription: x");

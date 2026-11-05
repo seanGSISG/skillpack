@@ -7,6 +7,8 @@ import { AGENTS, type AgentId } from "./agents.ts";
 import { describe, type Machine, type Step } from "./plan.ts";
 import { npmGlobalBin, prependPath, run, runJson, UV_DEFAULT_BIN, UV_INSTALL, which } from "./system.ts";
 
+type SetupStep = Extract<Step, { kind: "setup" }>;
+
 export type Status = "done" | "skipped" | "failed" | "manual";
 
 export interface Outcome {
@@ -105,6 +107,35 @@ async function signIn(step: LoginStep, interactive: boolean): Promise<Omit<Outco
   return { status: "failed", detail: lastLine(result.stderr || result.stdout) || "key not accepted" };
 }
 
+// The installed skill folder: ~/.agents/skills when another agent has it, else the Claude plugin's install path.
+async function skillDir(step: SetupStep): Promise<string | undefined> {
+  const shared = join(homedir(), ".agents", "skills", step.skill);
+  if (existsSync(shared)) return shared;
+  const rows = await runJson(["claude", "plugin", "list", "--json"]);
+  if (!Array.isArray(rows)) return undefined;
+  const row = rows.find((candidate: Record<string, unknown>) => candidate.id === step.id);
+  return typeof row?.installPath === "string" ? join(row.installPath, "skills", step.skill) : undefined;
+}
+
+// Runs the pack's walkthrough once. An update of a configured pack, or a run with --yes, never asks.
+export async function configure(
+  step: SetupStep,
+  interactive: boolean,
+  installed?: string,
+): Promise<Omit<Outcome, "step">> {
+  const dir = installed ?? (await skillDir(step));
+  if (!dir) return { status: "failed", detail: `skill ${step.skill} not found after install` };
+  const inSkill = ([script, ...args]: string[]): string[] => [join(dir, script ?? ""), ...args];
+  if (step.check && (await run(inSkill(step.check))).ok) return { status: "skipped", detail: "already configured" };
+  const command = inSkill(step.run);
+  // `interactive` only means no --yes: a piped run has no terminal for the walkthrough to ask on.
+  if (!interactive || !process.stdin.isTTY || !process.stdout.isTTY) {
+    return { status: "manual", detail: `run: ${command.join(" ")}` };
+  }
+  const result = await run(command, { inherit: true });
+  return result.ok ? { status: "done" } : { status: "failed", detail: `did not finish; run: ${command.join(" ")}` };
+}
+
 async function runStep(step: Step, interactive: boolean): Promise<Omit<Outcome, "step">> {
   switch (step.kind) {
     case "uv": {
@@ -176,6 +207,8 @@ async function runStep(step: Step, interactive: boolean): Promise<Omit<Outcome, 
       return { status: "manual", detail: `add ${step.url} as "${step.name}"` };
     case "login":
       return signIn(step, interactive);
+    case "setup":
+      return configure(step, interactive);
   }
 }
 
@@ -189,7 +222,7 @@ export function progress(label: string): { done: (message: string) => void; fail
 }
 
 // Steps that hand the terminal to a child process can't sit under a spinner.
-const usesTerminal = (step: Step): boolean => step.kind === "uv" || step.kind === "login";
+const usesTerminal = (step: Step): boolean => step.kind === "uv" || step.kind === "login" || step.kind === "setup";
 
 export async function execute(steps: Step[], { interactive }: { interactive: boolean }): Promise<Outcome[]> {
   const outcomes: Outcome[] = [];

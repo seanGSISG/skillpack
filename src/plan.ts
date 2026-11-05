@@ -12,7 +12,8 @@ export type Step =
   | { kind: "skills"; source: string; skills: string[]; agents: AgentId[]; copy: boolean }
   | { kind: "mcp"; agent: AgentType; name: string; url: string }
   | { kind: "mcp-manual"; agent: AgentId; name: string; url: string }
-  | { kind: "login"; command: string; auth: string[]; login: string[]; apiKey?: NonNullable<Tool["apiKey"]> };
+  | { kind: "login"; command: string; auth: string[]; login: string[]; apiKey?: NonNullable<Tool["apiKey"]> }
+  | ({ kind: "setup"; id: string } & NonNullable<Pack["manifest"]["setup"]>);
 
 // What is already on the machine, probed once before planning.
 export interface Machine {
@@ -119,6 +120,10 @@ export function planSteps({ packs, agents, copy }: Choices, machine: Machine): S
     const { command, auth, login, apiKey } = tool;
     if (auth && login) steps.push({ kind: "login", command, auth, login, ...(apiKey && { apiKey }) });
   }
+  // Last: a walkthrough can only see CLIs that are installed and signed in.
+  for (const pack of packs) {
+    if (pack.manifest.setup) steps.push({ kind: "setup", id: `${pack.name}@${pack.marketplace}`, ...pack.manifest.setup });
+  }
   return steps;
 }
 
@@ -149,5 +154,7 @@ export function describe(step: Step): string {
       return `Add MCP server ${step.name} (${step.url}) to ${AGENTS[step.agent].label} by hand`;
     case "login":
       return `Check ${step.command} sign-in`;
+    case "setup":
+      return `Configure ${step.skill}`;
   }
 }

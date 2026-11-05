@@ -33,6 +33,15 @@ export const Manifest = z.strictObject({
   mcpServers: z.record(z.string(), z.url()).default({}),
   // Marketplace name -> GitHub repo, for marketplaces the plugin's dependencies live in.
   claudeMarketplaces: z.record(z.string(), z.string()).default({}),
+  // A settings walkthrough that runs after install, on a terminal only. Script paths are relative to the skill
+  // folder, because that folder is what every agent gets. `check` exits 0 when the pack is already configured.
+  setup: z
+    .strictObject({
+      skill: z.string(),
+      run: z.array(z.string()).nonempty(),
+      check: z.array(z.string()).nonempty().optional(),
+    })
+    .optional(),
   // Skills from other repos that non-Claude agents need (Claude Code gets them as plugin dependencies).
   skillSources: z
     .array(z.strictObject({ source: z.string(), skills: z.array(z.string()).nonempty() }))

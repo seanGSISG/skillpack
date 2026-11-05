@@ -61,6 +61,11 @@ export function validateMarketplace(dir: string, since?: string): Validation {
     if (existsSync(join(root, "skillpack.json"))) {
       const manifest = Manifest.safeParse(readJson(join(root, "skillpack.json")));
       if (!manifest.success) problems.push(`${path}/skillpack.json: ${z.prettifyError(manifest.error)}`);
+      const setup = manifest.data?.setup;
+      for (const argv of setup ? [setup.run, setup.check ?? setup.run] : []) {
+        const script = `skills/${setup?.skill}/${argv[0]}`;
+        if (!existsSync(join(root, script))) problems.push(`${path}/skillpack.json: setup script ${script} is missing`);
+      }
     }
     for (const skill of listSkills(root)) {
       const meta = frontmatter(readFileSync(join(root, "skills", skill, "SKILL.md"), "utf8"));

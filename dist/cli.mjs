@@ -145,6 +145,10 @@ function planSteps({ packs, agents, copy }, machine) {
     if (auth && login)
       steps.push({ kind: "login", command, auth, login, ...apiKey && { apiKey } });
   }
+  for (const pack of packs) {
+    if (pack.manifest.setup)
+      steps.push({ kind: "setup", id: `${pack.name}@${pack.marketplace}`, ...pack.manifest.setup });
+  }
   return steps;
 }
 function describe(step) {
@@ -171,6 +175,8 @@ function describe(step) {
       return `Add MCP server ${step.name} (${step.url}) to ${AGENTS[step.agent].label} by hand`;
     case "login":
       return `Check ${step.command} sign-in`;
+    case "setup":
+      return `Configure ${step.skill}`;
   }
 }
 
@@ -255,6 +261,30 @@ async function signIn(step, interactive) {
     return { status: "done" };
   return { status: "failed", detail: lastLine(result.stderr || result.stdout) || "key not accepted" };
 }
+async function skillDir(step) {
+  const shared = join2(homedir2(), ".agents", "skills", step.skill);
+  if (existsSync(shared))
+    return shared;
+  const rows = await runJson(["claude", "plugin", "list", "--json"]);
+  if (!Array.isArray(rows))
+    return;
+  const row = rows.find((candidate) => candidate.id === step.id);
+  return typeof row?.installPath === "string" ? join2(row.installPath, "skills", step.skill) : undefined;
+}
+async function configure(step, interactive, installed) {
+  const dir = installed ?? await skillDir(step);
+  if (!dir)
+    return { status: "failed", detail: `skill ${step.skill} not found after install` };
+  const inSkill = ([script, ...args]) => [join2(dir, script ?? ""), ...args];
+  if (step.check && (await run(inSkill(step.check))).ok)
+    return { status: "skipped", detail: "already configured" };
+  const command = inSkill(step.run);
+  if (!interactive || !process.stdin.isTTY || !process.stdout.isTTY) {
+    return { status: "manual", detail: `run: ${command.join(" ")}` };
+  }
+  const result = await run(command, { inherit: true });
+  return result.ok ? { status: "done" } : { status: "failed", detail: `did not finish; run: ${command.join(" ")}` };
+}
 async function runStep(step, interactive) {
   switch (step.kind) {
     case "uv": {
@@ -320,6 +350,8 @@ async function runStep(step, interactive) {
       return { status: "manual", detail: `add ${step.url} as "${step.name}"` };
     case "login":
       return signIn(step, interactive);
+    case "setup":
+      return configure(step, interactive);
   }
 }
 function progress(label) {
@@ -329,7 +361,7 @@ function progress(label) {
   spin.start(label);
   return { done: (message) => spin.stop(message), fail: (message) => spin.error(message) };
 }
-var usesTerminal = (step) => step.kind === "uv" || step.kind === "login";
+var usesTerminal = (step) => step.kind === "uv" || step.kind === "login" || step.kind === "setup";
 async function execute(steps, { interactive }) {
   const outcomes = [];
   for (const step of steps) {
@@ -376,6 +408,11 @@ var Manifest = z.strictObject({
   npmTools: z.array(Tool).default([]),
   mcpServers: z.record(z.string(), z.url()).default({}),
   claudeMarketplaces: z.record(z.string(), z.string()).default({}),
+  setup: z.strictObject({
+    skill: z.string(),
+    run: z.array(z.string()).nonempty(),
+    check: z.array(z.string()).nonempty().optional()
+  }).optional(),
   skillSources: z.array(z.strictObject({ source: z.string(), skills: z.array(z.string()).nonempty() })).default([])
 });
 var PluginJson = z.object({
@@ -488,6 +525,12 @@ function validateMarketplace(dir, since) {
       const manifest = Manifest.safeParse(readJson(join4(root, "skillpack.json")));
       if (!manifest.success)
         problems.push(`${path}/skillpack.json: ${z2.prettifyError(manifest.error)}`);
+      const setup = manifest.data?.setup;
+      for (const argv of setup ? [setup.run, setup.check ?? setup.run] : []) {
+        const script = `skills/${setup?.skill}/${argv[0]}`;
+        if (!existsSync3(join4(root, script)))
+          problems.push(`${path}/skillpack.json: setup script ${script} is missing`);
+      }
     }
     for (const skill of listSkills(root)) {
       const meta = frontmatter(readFileSync2(join4(root, "skills", skill, "SKILL.md"), "utf8"));
