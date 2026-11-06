@@ -45,6 +45,7 @@ Anything already installed is brought up to date instead: CLIs upgrade, marketpl
 | quick-review | `quick-review` | Quick independent diff review with Codex's built-in reviewer (`codex review`, GPT-6.1 Sol) on the ChatGPT sign-in; installs the Codex CLI |
 | skill-finder | `skill-finder` | Finds the installed skill that fits a task (MCP `find_skills` or `skill-finder search`); installs the CLI from `seanGSISG/skill-finder`. Codex needs `codex mcp add skill-finder -- skill-finder` once |
 | stash | `stash` | Moves and shares files through Zipline (i.lsdmt.me): links with expiry, view limits, passwords |
+| write-pr-description | `write-pr-description` | Writes a PR body: summary, the repository's template sections, honest validation, reviewer guidance. Forked from Warp's common-skills; ship depends on it |
 | web-tool-routing | `web-tool-routing` | Picks Octen, Parallel or Tavily for each web task |
 | | `web-tool-setup` | Checks and installs the pack's CLIs and sign-ins |
 | | `octen-search` | Web and news search, multi-angle surveys (default search) |
