@@ -4,7 +4,7 @@ import { copyFileSync, existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { AGENTS, type AgentId } from "./agents.ts";
-import { describe, type Machine, type Step } from "./plan.ts";
+import { describe, type Machine, npmInstall, type Step } from "./plan.ts";
 import { npmGlobalBin, prependPath, run, runJson, UV_DEFAULT_BIN, UV_INSTALL, which } from "./system.ts";
 
 type SetupStep = Extract<Step, { kind: "setup" }>;
@@ -149,7 +149,7 @@ async function runStep(step: Step, interactive: boolean): Promise<Omit<Outcome, 
       const result = await run(
         uv
           ? ["uv", "tool", action, tool.package]
-          : ["npm", "install", "-g", action === "upgrade" ? `${tool.package}@latest` : tool.package],
+          : npmInstall(tool.package, action),
       );
       if (!result.ok) {
         // A CLI installed some other way (pipx, a vendor script) is on PATH but unknown to uv; leave it be.

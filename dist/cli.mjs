@@ -151,6 +151,12 @@ function planSteps({ packs, agents, copy }, machine) {
   }
   return steps;
 }
+function npmInstall(spec, action) {
+  if (/^(@[^/\s]+\/)?[^/:#@\s]+$/.test(spec)) {
+    return ["npm", "install", "-g", action === "upgrade" ? `${spec}@latest` : spec];
+  }
+  return ["npm", "install", "-g", "--install-links", spec];
+}
 function describe(step) {
   switch (step.kind) {
     case "uv":
@@ -159,7 +165,7 @@ function describe(step) {
       const { action, manager, tool } = step;
       if (manager === "uv")
         return `${action === "install" ? "Install" : "Upgrade"} ${tool.command} (uv tool ${action} ${tool.package})`;
-      return action === "install" ? `Install ${tool.command} (npm install -g ${tool.package})` : `Upgrade ${tool.command} (npm install -g ${tool.package}@latest)`;
+      return `${action === "install" ? "Install" : "Upgrade"} ${tool.command} (${npmInstall(tool.package, action).join(" ")})`;
     }
     case "claude-marketplace":
       return step.action === "add" ? `Add Claude marketplace ${step.name} (${step.repo})` : `Refresh Claude marketplace ${step.name}`;
@@ -295,7 +301,7 @@ async function runStep(step, interactive) {
     case "tool": {
       const { action, manager, tool } = step;
       const uv = manager === "uv";
-      const result = await run(uv ? ["uv", "tool", action, tool.package] : ["npm", "install", "-g", action === "upgrade" ? `${tool.package}@latest` : tool.package]);
+      const result = await run(uv ? ["uv", "tool", action, tool.package] : npmInstall(tool.package, action));
       if (!result.ok) {
         if (uv && action === "upgrade" && result.stderr.includes("is not installed")) {
           return { status: "skipped", detail: "not installed with uv; left as is" };

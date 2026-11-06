@@ -127,6 +127,16 @@ export function planSteps({ packs, agents, copy }: Choices, machine: Machine): S
   return steps;
 }
 
+// The `npm install -g` argv for a tool. A registry name upgrades with `@latest`. A git or URL spec
+// (`github:owner/repo`) takes no version, and npm links it to a temporary clone that it then
+// deletes, so `--install-links` makes npm copy the package in instead.
+export function npmInstall(spec: string, action: "install" | "upgrade"): string[] {
+  if (/^(@[^/\s]+\/)?[^/:#@\s]+$/.test(spec)) {
+    return ["npm", "install", "-g", action === "upgrade" ? `${spec}@latest` : spec];
+  }
+  return ["npm", "install", "-g", "--install-links", spec];
+}
+
 export function describe(step: Step): string {
   switch (step.kind) {
     case "uv":
@@ -134,9 +144,7 @@ export function describe(step: Step): string {
     case "tool": {
       const { action, manager, tool } = step;
       if (manager === "uv") return `${action === "install" ? "Install" : "Upgrade"} ${tool.command} (uv tool ${action} ${tool.package})`;
-      return action === "install"
-        ? `Install ${tool.command} (npm install -g ${tool.package})`
-        : `Upgrade ${tool.command} (npm install -g ${tool.package}@latest)`;
+      return `${action === "install" ? "Install" : "Upgrade"} ${tool.command} (${npmInstall(tool.package, action).join(" ")})`;
     }
     case "claude-marketplace":
       return step.action === "add"

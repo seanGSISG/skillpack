@@ -1,5 +1,5 @@
 import { describe as group, expect, test } from "bun:test";
-import { installedPacks, type Machine, planSteps, type Step } from "./plan.ts";
+import { installedPacks, type Machine, npmInstall, planSteps, type Step } from "./plan.ts";
 import type { Pack, Tool } from "./source.ts";
 
 const tvly = {
@@ -126,6 +126,17 @@ group("planSteps", () => {
     expect(steps[0]).toEqual({ kind: "tool", action: "install", manager: "npm", tool: octen });
     expect(kinds(steps)).not.toContain("uv");
     expect(steps.at(-1)).toEqual({ kind: "login", command: "octen", auth: octen.auth, login: octen.login, apiKey: octen.apiKey });
+  });
+
+  test("npm upgrades a registry package to @latest and copies a git package in", () => {
+    expect(npmInstall("@octen.ai/cli", "upgrade")).toEqual(["npm", "install", "-g", "@octen.ai/cli@latest"]);
+    expect(npmInstall("github:seanGSISG/skill-finder", "upgrade")).toEqual([
+      "npm",
+      "install",
+      "-g",
+      "--install-links",
+      "github:seanGSISG/skill-finder",
+    ]);
   });
 
   test("--copy reaches every skills step", () => {
