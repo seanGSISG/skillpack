@@ -39,6 +39,8 @@ Anything already installed is brought up to date instead: CLIs upgrade, marketpl
 | herdr-ops | `herdr-ops` | Runs and drives terminal work and agents on spark, cachy and dh01 through Herdr |
 | jot | `jot` | Reads, edits, comments on and shares notes in Jot (jot.lsdmt.me); bundled v0.1.3 CLI, key from Bitwarden |
 | ab-review | `ab-review` | Local visual A/B review page (media + instructions + ratings/radios/notes on the LAN); answers saved to `answers.json` for the agent |
+| artifact-studio | `craft` | Makes claude.ai Artifacts and HTML pages show their subject working: one hero interaction per page, house style rules, a share-ready check |
+| | `share` | Publishes a page to share.lsdmt.me as a private, password or public link, updated in place on the same slug |
 | go-best-practices | `go-best-practices` | Production Go: lifecycle, concurrency, config, testing, CI |
 | orca-pipeline | `orca-pipeline` | Runs plan → research → waves → parallel agents in Orca, each change reviewed by a different model |
 | pack-author | `pack-author` | Builds, registers and releases packs for skillpack and cc-plugins |
